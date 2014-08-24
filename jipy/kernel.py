@@ -19,7 +19,7 @@ DELIM = StringUtil.toBytes("<IDS|MSG>")
 KERNEL_PROTOCOL_VERSION = b'5.0'
 
 
-def coerce_ident(ident):
+def _unpack_ident(ident):
     return [StringUtil.fromBytes(x)   for x in ident]
 
 
@@ -127,40 +127,25 @@ class KernelConnection (object):
         while n_events > 0:
             if self.__poller.pollin(self.__shell_poll_index):
                 ident, msg = self.session.recv(self.shell)
-                ident = coerce_ident(ident)
+                ident = _unpack_ident(ident)
                 self._shell_handler.handle(ident, msg)
 
             if self.__poller.pollin(self.__iopub_poll_index):
                 ident, msg = self.session.recv(self.iopub)
-                ident = coerce_ident(ident)
+                ident = _unpack_ident(ident)
                 self._iopub_handler.handle(ident, msg)
 
             if self.__poller.pollin(self.__stdin_poll_index):
                 ident, msg = self.session.recv(self.stdin)
-                ident = coerce_ident(ident)
+                ident = _unpack_ident(ident)
                 self._stdin_handler.handle(ident, msg)
 
             if self.__poller.pollin(self.__control_poll_index):
                 ident, msg = self.session.recv(self.control)
-                ident = coerce_ident(ident)
+                ident = _unpack_ident(ident)
                 self._control_handler.handle(ident, msg)
 
             n_events = self.__poller.poll(0)
-
-
-
-
-    def _handle_msg_shell_execute_reply(self, ident, msg):
-        pass
-
-    def _handle_msg_iopub_shell_stream(self, ident, msg):
-        pass
-
-    def _handle_msg_iopub_status(self, ident, msg):
-        pass
-
-    def _handle_msg_iopub_pyin(self, ident, msg):
-        pass
 
 
     def execute_request(self, code, silent=False, store_history=True, user_expressions=None, allow_stdin=True):
@@ -181,6 +166,90 @@ class KernelConnection (object):
             'user_expressions': user_expressions   if user_expressions is not None   else {},
             'allow_stdin': allow_stdin
         })
+
+
+    def inspect_request(self, code, cursor_pos, detail_level=0):
+        '''
+        Send an execute request to the remote kernel via the SHELL socket
+
+        :param code: the code to execute
+        :param cursor_pos: the position of the cursor (in unicode characters) where inspection is requested
+        :param detail_level: 0 or 1
+        :return:
+        '''
+        self.session.send(self.shell, 'inspect_request', {
+            'code': code,
+            'cursor_pos': cursor_pos,
+            'detail_level': detail_level
+        })
+
+
+    def on_execute_reply_ok(self, execution_count, payload, user_expressions):
+        pass
+
+    def on_execute_reply_error(self, execution_count, ename, evalue, traceback):
+        pass
+
+    def on_execute_reply_abort(self, execution_count):
+        pass
+
+    def on_inspect_reply_ok(self, data, metadata):
+        pass
+
+    def on_inspect_reply_error(self, ename, evalue, traceback):
+        pass
+
+    def on_stream(self, stream_name, data):
+        pass
+
+    def on_status(self, execution_state):
+        pass
+
+    def on_execute_input(self, execution_count, code):
+        pass
+
+
+    def _handle_msg_shell_execute_reply(self, ident, msg):
+        content = msg['content']
+        status = content['status']
+        if status == 'ok':
+            return self.on_execute_reply_ok(content['execution_count'], content['payload'],
+                                            content['user_expressions'])
+        elif status == 'error':
+            return self.on_execute_reply_error(content['execution_count'], content['ename'],
+                                               content['evalue'], content['traceback'])
+        elif status == 'abort':
+            return self.on_execute_reply_abort(content['execution_count'])
+        else:
+            raise ValueError, 'Unknown execute_reply status'
+
+    def _handle_msg_shell_inspect_reply(self, ident, msg):
+        content = msg['content']
+        status = content['status']
+        if status == 'ok':
+            return self.on_inspect_reply_ok(content['data'], content['metadata'])
+        elif status == 'error':
+            return self.on_inspect_reply_error(content['ename'],
+                                               content['evalue'], content['traceback'])
+        else:
+            raise ValueError, 'Unknown inspect_reply status'
+
+    def _handle_msg_iopub_stream(self, ident, msg):
+        content = msg['content']
+        return self.on_stream(content['name'], content['data'])
+
+    def _handle_msg_iopub_status(self, ident, msg):
+        content = msg['content']
+        return self.on_status(content['execution_state'])
+
+    def _handle_msg_iopub_pyin(self, ident, msg):
+        content = msg['content']
+        return self.on_execute_input(content['execution_count'], content['code'])
+
+    def _handle_msg_iopub_execute_input(self, ident, msg):
+        content = msg['content']
+        return self.on_execute_input(content['execution_count'], content['code'])
+
 
 
 

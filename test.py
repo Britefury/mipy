@@ -13,17 +13,24 @@ from jipy import kernel
 kernel_name = sys.argv[1]
 
 class TestKernelConnection (kernel.KernelConnection):
-    def _handle_msg_shell_execute_reply(self, ident, msg):
-        print 'execute_reply: {0}: {1}'.format(ident, msg['content'])
+    def on_execute_reply_ok(self, execution_count, payload, user_expressions):
+        print 'execute_reply OK: {0} payload={1} user_expressions={2}'.format(execution_count, payload, user_expressions)
 
-    def _handle_msg_iopub_stream(self, ident, msg):
-        print 'stream: {0}: {1}'.format(ident, msg['content'])
+    def on_execute_reply_error(self, execution_count, ename, evalue, traceback):
+        print 'execute_reply ERROR: {0} ename={1} evalue={2} traceback={3}'.format(execution_count,
+                                                                                   ename, evalue, traceback)
 
-    # def _handle_msg_iopub_status(self, ident, msg):
-    #     print 'status: {0}: {1}'.format(ident, msg['content'])
-    #
-    # def _handle_msg_iopub_pyin(self, ident, msg):
-    #     print 'pyin: {0}: {1}'.format(ident, msg['content'])
+    def on_execute_reply_abort(self, execution_count):
+        print 'execute_reply ABORT: {0}'.format(execution_count)
+
+    def on_stream(self, stream_name, data):
+        print '{0}: {1}'.format(stream_name, data)
+
+    def on_status(self, execution_state):
+        print 'status: {0}'.format(execution_state)
+
+    def on_execute_input(self, execution_count, code):
+        print 'execute_input: {0} code={1}'.format(execution_count, code)
 
 
 
