@@ -76,6 +76,35 @@ class _MessageRouter (object):
 
 
 
+
+class Comm (object):
+    def __init__(self, kernel_connection, comm_id, target_name):
+        self.__kernel = kernel_connection
+        self.comm_id = comm_id
+        self.target_name = target_name
+
+        self.on_message = None
+        self.on_closed_remotely = None
+
+
+    def message(self, data):
+        kernel = self.__kernel
+        kernel.session.send(kernel.shell, 'comm_msg', {
+            'comm_id': self.comm_id,
+            'data': data
+        })
+
+    def close(self, data):
+        kernel = self.__kernel
+        kernel.session.send(kernel.shell, 'comm_close', {
+            'comm_id': self.comm_id,
+            'data': data
+        })
+        kernel._notify_comm_closed(self)
+
+
+
+
 class KernelConnection (object):
     '''
     An IPython kernel connection
@@ -94,6 +123,7 @@ class KernelConnection (object):
     on_input_request: 'input_request' message on STDIN socket; f(prompt, password, reply_callback);
         reply_callback is a callback function f(value) passed to the on_input_request callback that
         your code should invoke when input is available to send to the kernel
+    on_comm_open: 'comm_open' message on IOPUB; f(comm, data); comm is Comm instance
     '''
     def __init__(self, kernel_name, username=''):
         '''
@@ -151,9 +181,13 @@ class KernelConnection (object):
         self.__execute_reply_handlers = {}
         self.__inspect_reply_handlers = {}
         self.__complete_reply_handlers = {}
+        self.__history_reply_handlers = {}
         self.__connect_reply_handlers = {}
         self.__kernel_info_reply_handlers = {}
         self.__shutdown_reply_handlers = {}
+
+        # Comms
+        self.__comm_id_to_comm = {}
 
         # Event callbacks
         self.on_stream = None
@@ -162,6 +196,7 @@ class KernelConnection (object):
         self.on_execute_input = None
         self.on_clear_output = None
         self.on_input_request = None
+        self.on_comm_open = None
 
         # State
         self.__busy = False
@@ -291,13 +326,76 @@ class KernelConnection (object):
 
 
 
-    def history_request(self):
-        raise NotImplementedError
+    def history_request_range(self, output=True, raw=False,
+                        session=0, start=0, stop=0, on_history=None):
+        '''
+        Send a range history_request to the remote kernel via the SHELL socket
+
+        :param output:
+        :param raw:
+        :param session:
+        :param start:
+        :param stop:
+        :param on_history: callback: f(history)
+        :return: message ID
+        '''
+        msg, msg_id = self.session.send(self.shell, 'history_request',
+                                        {'output': output, 'raw': raw, 'hist_access_type': 'range',
+                                         'session': session, 'start': start, 'stop': stop})
+
+        if on_history is not None:
+            self.__history_reply_handlers[msg_id] = on_history
+
+        return msg_id
+
+
+    def history_request_tail(self, output=True, raw=False,
+                             n=1, on_history=None):
+        '''
+        Send a tail history_request to the remote kernel via the SHELL socket
+
+        :param output:
+        :param raw:
+        :param n: show the last n entries
+        :param on_history: callback: f(history)
+        :return: message ID
+        '''
+        msg, msg_id = self.session.send(self.shell, 'history_request',
+                                        {'output': output, 'raw': raw, 'hist_access_type': 'tail',
+                                         'n': n})
+
+        if on_history is not None:
+            self.__history_reply_handlers[msg_id] = on_history
+
+        return msg_id
+
+
+    def history_request_search(self, output=True, raw=False,
+                               pattern='', unique=False, n=1, on_history=None):
+        '''
+        Send a search history_request to the remote kernel via the SHELL socket
+
+        :param output:
+        :param raw:
+        :param patern:
+        :param unique:
+        :param n: show the last n entries
+        :param on_history: callback: f(history)
+        :return: message ID
+        '''
+        msg, msg_id = self.session.send(self.shell, 'history_request',
+                                        {'output': output, 'raw': raw, 'hist_access_type': 'search',
+                                         'n': n, 'pattern': pattern, 'unique': unique})
+
+        if on_history is not None:
+            self.__history_reply_handlers[msg_id] = on_history
+
+        return msg_id
 
 
     def connect_request(self, on_connect=None):
         '''
-        Send a connect request to the remote kernel via the SHELL socket
+        Send a connect_request to the remote kernel via the SHELL socket
 
         :param on_connect: callback: f(shell_port, iopub_port, stdin_port, hb_port)
         :return: message ID
@@ -339,6 +437,30 @@ class KernelConnection (object):
             self.__shutdown_reply_handlers[msg_id] = on_shutdown
 
         return msg_id
+
+
+    def open_comm(self, target_name, data=None):
+        '''
+        Open a comm
+
+        :param target_name: name identifying the constructor on the other end
+        :param data: extra initialisation data
+        :return: a Comm object
+        '''
+        if data is None:
+            data = {}
+
+        comm_id = uuid.uuid4()
+        comm = Comm(self, comm_id, target_name)
+        self.__comm_id_to_comm[comm_id] = comm
+
+        self.session.send(self.shell, 'comm_open', {'comm_id': comm_id, 'target_name': target_name, 'data': data})
+
+        return comm
+
+
+    def _notity_comm_closed(self, comm):
+        del self.__comm_id_to_comm[comm.comm_id]
 
 
 
@@ -417,6 +539,13 @@ class KernelConnection (object):
         else:
             raise ValueError, 'Unknown inspect_reply status'
 
+    def _handle_msg_shell_history_reply(self, ident, msg):
+        content = msg['content']
+        parent_msg_id = msg['parent_header']['msg_id']
+        on_history = self.__history_reply_handlers.pop(parent_msg_id, None)
+        if on_history is not None:
+            on_history(content['history'])
+
     def _handle_msg_shell_connect_reply(self, ident, msg):
         content = msg['content']
         parent_msg_id = msg['parent_header']['msg_id']
@@ -463,17 +592,17 @@ class KernelConnection (object):
     def _handle_msg_iopub_pyin(self, ident, msg):
         content = msg['content']
         if self.on_execute_input is not None:
-            return self.on_execute_input(content['execution_count'], content['code'])
+            self.on_execute_input(content['execution_count'], content['code'])
 
     def _handle_msg_iopub_execute_input(self, ident, msg):
         content = msg['content']
         if self.on_execute_input is not None:
-            return self.on_execute_input(content['execution_count'], content['code'])
+            self.on_execute_input(content['execution_count'], content['code'])
 
     def _handle_msg_iopub_clear_output(self, ident, msg):
         content = msg['content']
         if self.on_clear_output is not None:
-            return self.on_clear_output(content['wait'])
+            self.on_clear_output(content['wait'])
 
     def _handle_msg_stdin_input_request(self, ident, msg):
         content = msg['content']
@@ -483,7 +612,41 @@ class KernelConnection (object):
             def reply_callback(value):
                 self.session.send(self.stdin, 'input_reply', {'value': value}, parent=request_header)
 
-            return self.on_input_request(content['prompt'], content['password'], reply_callback)
+            self.on_input_request(content['prompt'], content['password'], reply_callback)
+
+    def _handle_msg_iopub_comm_open(self, ident, msg):
+        content = msg['content']
+
+        comm_id = content['comm_id']
+        target_name = content['target_name']
+        data = content['data']
+
+        comm = Comm(self, comm_id, target_name)
+        self.__comm_id_to_comm[comm_id] = comm
+
+        if self.on_comm_open is not None:
+            self.on_comm_open(comm, data)
+
+    def _handle_msg_iopub_comm_msg(self, ident, msg):
+        content = msg['content']
+
+        comm_id = content['comm_id']
+        data = content['data']
+
+        comm = self.__comm_id_to_comm[comm_id]
+        if comm.on_message is not None:
+            comm.on_message(data)
+
+    def _handle_msg_iopub_comm_close(self, ident, msg):
+        content = msg['content']
+
+        comm_id = content['comm_id']
+        data = content['data']
+
+        comm = self.__comm_id_to_comm[comm_id]
+        if comm.on_close is not None:
+            comm.on_close(data)
+        del self.__comm_id_to_comm[comm_id]
 
 
 
