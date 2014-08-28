@@ -1,4 +1,4 @@
-import sys
+import sys, time
 
 JARS = ['jeromq-0.3.5-SNAPSHOT.jar', 'guava-17.0.jar']
 
@@ -9,12 +9,14 @@ for j in JARS:
 import datetime
 from jipy import kernel
 
-kernel_name = sys.argv[1]
 
 
+krn_proc = kernel.IPythonKernelProcess()
 
+while krn_proc.connection is None:
+	time.sleep(0.1)
 
-krn = kernel.KernelConnection(kernel_name)
+krn = krn_proc.connection
 krn.execute_request('import time, sys\n', listener=kernel.DebugKernelRequestListener('import'))
 print '[import] Importing time'
 krn.poll(-1)
@@ -42,4 +44,4 @@ for i in xrange(N_POLLS):
 t2 = datetime.datetime.now()
 print 'Polling {0} times took {1}'.format(N_POLLS, t2 - t1)
 
-krn.close()
+krn_proc.close()
