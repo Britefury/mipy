@@ -1,11 +1,14 @@
-import os, sys, json, hmac, uuid, datetime, hashlib, subprocess, tempfile, collections
+import os, sys, json, hmac, uuid, datetime, hashlib, subprocess, tempfile, json
 
 from org.zeromq import ZMQ
 from org.python.core.util import StringUtil
 
 
 
-class ConnectionFileError (Exception):
+class ConnectionFileNotFoundError (Exception):
+	pass
+
+class InvalidConnectionFileError (Exception):
 	pass
 
 
@@ -22,9 +25,12 @@ def load_connection_file(kernel_name=None, kernel_path=None):
 
 	if os.path.exists(kernel_path):
 		with open(kernel_path, 'r') as f:
-			return json.load(f)
+			try:
+				return json.load(f)
+			except ValueError:
+				raise InvalidConnectionFileError
 	else:
-		raise ConnectionFileError, 'Could not find connection file for kernel {0} at {1}'.format(kernel_name, p)
+		raise ConnectionFileNotFoundError, 'Could not find connection file for kernel {0} at {1}'.format(kernel_name, p)
 
 
 DELIM = StringUtil.toBytes("<IDS|MSG>")
@@ -1115,6 +1121,10 @@ class IPythonKernelProcess (object):
 	def connection(self):
 		if self.__connection is None:
 			if os.path.exists(self.__connection_file_path):
-				self.__connection = KernelConnection(kernel_path=self.__connection_file_path)
+				try:
+					self.__connection = KernelConnection(kernel_path=self.__connection_file_path)
+				except InvalidConnectionFileError:
+					# Try again
+					pass
 		return self.__connection
 
