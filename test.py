@@ -32,14 +32,14 @@ class TestListener (kernel.KernelRequestListener):
 		print '[{0}] execute_input: {1} code={2}'.format(self.name, execution_count, code)
 
 	def on_input_request(self, prompt, password, reply_callback):
-		'''
-	    	'input_request' message on STDIN socket
+		"""
+		Received 'input_request' message on STDIN socket
 
 		:param prompt: the prompt to the user
 		:param password: if True, do not echo text back to the user
 		:param reply_callback: function of the form f(value) that your code should invoke when input is available to send
 		:return:
-		'''
+		"""
 		pass
 
 

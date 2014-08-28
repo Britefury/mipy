@@ -256,10 +256,7 @@ class KernelConnection(object):
 		self.__comm_id_to_comm = {}
 
 		# Event callbacks
-		self.on_stream = None
-		self.on_display_data = None
 		self.on_status = None
-		self.on_execute_input = None
 		self.on_clear_output = None
 		self.on_comm_open = None
 
@@ -553,6 +550,8 @@ class KernelConnection(object):
 				kernel_request_listener.on_execute_abort()
 			else:
 				raise ValueError, 'Unknown execute_reply status'
+		else:
+			print 'No listener for execute_reply'
 
 	def _handle_msg_shell_inspect_reply(self, ident, msg):
 		content = msg['content']
@@ -573,6 +572,8 @@ class KernelConnection(object):
 				kernel_request_listener.on_inspect_error(ename, evalue, traceback)
 			else:
 				raise ValueError, 'Unknown inspect_reply status'
+		else:
+			print 'No listener for inspect_reply'
 
 	def _handle_msg_shell_complete_reply(self, ident, msg):
 		content = msg['content']
@@ -595,6 +596,8 @@ class KernelConnection(object):
 				kernel_request_listener.on_complete_error(ename, evalue, traceback)
 			else:
 				raise ValueError, 'Unknown inspect_reply status'
+		else:
+			print 'No listener for complete_reply'
 
 	def _handle_msg_shell_history_reply(self, ident, msg):
 		content = msg['content']
@@ -602,6 +605,8 @@ class KernelConnection(object):
 		on_history = self.__history_reply_handlers.pop(parent_msg_id, None)
 		if on_history is not None:
 			on_history(content['history'])
+		else:
+			print 'No listener for history_reply'
 
 	def _handle_msg_shell_connect_reply(self, ident, msg):
 		content = msg['content']
@@ -610,6 +615,8 @@ class KernelConnection(object):
 		if on_connect is not None:
 			on_connect(content['shell_port'], content['iopub_port'], content['stdin_port'],
 				   content['hb_port'])
+		else:
+			print 'No listener for connect_reply'
 
 	def _handle_msg_shell_kernel_info_reply(self, ident, msg):
 		content = msg['content']
@@ -622,6 +629,8 @@ class KernelConnection(object):
 				       content['language'],
 				       content['language_version'],
 				       content['banner'])
+		else:
+			print 'No listener for kernel_info_reply'
 
 	def _handle_msg_shell_shutdown_reply(self, ident, msg):
 		content = msg['content']
@@ -629,6 +638,8 @@ class KernelConnection(object):
 		on_shutdown = self.__shutdown_reply_handlers.pop(parent_msg_id, None)
 		if on_shutdown is not None:
 			on_shutdown(content['restart'])
+		else:
+			print 'No listener for shutdown_reply'
 
 	def _handle_msg_iopub_stream(self, ident, msg):
 		content = msg['content']
@@ -638,8 +649,8 @@ class KernelConnection(object):
 		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
 		if kernel_request_listener is not None:
 			kernel_request_listener.on_stream(stream_name, data)
-		if self.on_stream is not None:
-			self.on_stream(stream_name, data)
+		else:
+			print 'No listener for stream'
 
 	def _handle_msg_iopub_display_data(self, ident, msg):
 		content = msg['content']
@@ -650,8 +661,8 @@ class KernelConnection(object):
 		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
 		if kernel_request_listener is not None:
 			kernel_request_listener.on_display_data(source, data, metadata)
-		if self.on_display_data is not None:
-			self.on_display_data(source, data, metadata)
+		else:
+			print 'No listener for display_data'
 
 	def _handle_msg_iopub_status(self, ident, msg):
 		content = msg['content']
@@ -678,8 +689,8 @@ class KernelConnection(object):
 		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
 		if kernel_request_listener is not None:
 			kernel_request_listener.on_execute_input(execution_count, code)
-		if self.on_execute_input is not None:
-			self.on_execute_input(execution_count, code)
+		else:
+			print 'No listener for execute_input'
 
 	def _handle_msg_iopub_clear_output(self, ident, msg):
 		content = msg['content']
