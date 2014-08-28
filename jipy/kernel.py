@@ -4,15 +4,23 @@ from org.zeromq import ZMQ
 from org.python.core.util import StringUtil
 
 
+
+class ConnectionFileError (Exception):
+	pass
+
+
 def load_connection_file(kernel_name):
-	p = os.path.expanduser(os.path.join('~', '.ipython', 'profile_default', 'security',
-					    'kernel-{0}.json'.format(kernel_name)))
+	if os.path.isabs(kernel_name):
+		p = kernel_name
+	else:
+		p = os.path.expanduser(os.path.join('~', '.ipython', 'profile_default', 'security',
+						    'kernel-{0}.json'.format(kernel_name)))
 
 	if os.path.exists(p):
 		with open(p, 'r') as f:
 			return json.load(f)
 	else:
-		raise ValueError, 'Could not find connection file for kernel {0}'.format(kernel_name)
+		raise ConnectionFileError, 'Could not find connection file for kernel {0}'.format(kernel_name)
 
 
 DELIM = StringUtil.toBytes("<IDS|MSG>")
