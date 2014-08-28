@@ -12,51 +12,78 @@ from jipy import kernel
 kernel_name = sys.argv[1]
 
 
-def on_execute_reply_ok(execution_count, payload, user_expressions):
-	print 'execute_reply OK: {0} payload={1} user_expressions={2}'.format(execution_count, payload,
-									      user_expressions)
+
+class TestListener (kernel.KernelRequestListener):
+	def __init__(self, name):
+		super(TestListener, self).__init__()
+		self.name = name
 
 
-def on_execute_reply_error(ename, evalue, traceback):
-	print 'execute_reply ERROR: ename={0} evalue={1} traceback={2}'.format(ename, evalue, traceback)
+	def on_stream(self, stream_name, data):
+		print '[{0}] {1}: {2}'.format(self.name, stream_name, data)
+
+	def on_display_data(self, source, data, metadata):
+		pass
+
+	def on_status(self, busy):
+		print '[{0}] status: busy={1}'.format(self.name, busy)
+
+	def on_execute_input(self, execution_count, code):
+		print '[{0}] execute_input: {1} code={2}'.format(self.name, execution_count, code)
+
+	def on_input_request(self, prompt, password, reply_callback):
+		'''
+	    	'input_request' message on STDIN socket
+
+		:param prompt: the prompt to the user
+		:param password: if True, do not echo text back to the user
+		:param reply_callback: function of the form f(value) that your code should invoke when input is available to send
+		:return:
+		'''
+		pass
 
 
-def on_execute_reply_abort():
-	print 'execute_reply ABORT'.format()
+	def on_execute_ok(self, execution_count, payload, user_expressions):
+		print '[{0}] execute_reply OK: {1} payload={2} user_expressions={3}'.format(self.name, execution_count, payload,
+										      user_expressions)
+
+	def on_execute_error(self, ename, evalue, traceback):
+		print '[{0}] execute_reply ERROR: ename={1} evalue={2} traceback={3}'.format(self.name, ename, evalue, traceback)
+
+	def on_execute_abort(self):
+		print '[{0}] execute_reply ABORT'.format(self.name)
 
 
-def on_stream(stream_name, data):
-	print '{0}: {1}'.format(stream_name, data)
+	def on_inspect_ok(self, data, metadata):
+		pass
+
+	def on_inspect_error(self, ename, evalue, traceback):
+		pass
 
 
-def on_status(busy):
-	print 'status: busy={0}'.format(busy)
+	def on_complete_ok(self, matches, cursor_start, cursor_end, metadata):
+		pass
 
+	def on_complete_error(self, ename, evalue, traceback):
+		pass
 
-def on_execute_input(execution_count, code):
-	print 'execute_input: {0} code={1}'.format(execution_count, code)
 
 
 kernel = kernel.KernelConnection(kernel_name)
-kernel.on_stream = on_stream
-kernel.on_status = on_status
-kernel.on_execute_input = on_execute_input
+msg_id = kernel.execute_request('import time, sys\n', listener=TestListener('1'))
+print 'Importing time {0}'.format(1)
+kernel.poll(-1)
 
-print 'Importing time'
-kernel.execute_request('import time, sys\n',
-		       on_ok=on_execute_reply_ok, on_error=on_execute_reply_error, on_abort=on_execute_reply_abort)
+msg_id = kernel.execute_request('time.sleep(1.0)\n', listener=TestListener('2'))
+print 'Sleeping... {0}'.format(2)
 kernel.poll(-1)
-print 'Sleeping...'
-kernel.execute_request('time.sleep(1.0)\n',
-		       on_ok=on_execute_reply_ok, on_error=on_execute_reply_error, on_abort=on_execute_reply_abort)
+
+msg_id = kernel.execute_request('print "Hello world"\n', listener=TestListener('3'))
+print 'Printing something {0}'.format(3)
 kernel.poll(-1)
-print 'Printing something'
-kernel.execute_request('print "Hello world"\n',
-		       on_ok=on_execute_reply_ok, on_error=on_execute_reply_error, on_abort=on_execute_reply_abort)
-kernel.poll(-1)
-print 'Raising an exception'
-kernel.execute_request('raise ValueError\n',
-		       on_ok=on_execute_reply_ok, on_error=on_execute_reply_error, on_abort=on_execute_reply_abort)
+
+msg_id = kernel.execute_request('raise ValueError\n', listener=TestListener('4'))
+print 'Raising an exception {0}'.format(4)
 kernel.poll(-1)
 
 N_POLLS = 1024

@@ -102,6 +102,79 @@ class Comm(object):
 		kernel._notify_comm_closed(self)
 
 
+
+def _get_parent_msg_id(msg):
+	return msg['parent_header']['msg_id']
+
+
+class KernelRequestListener (object):
+	def __init__(self):
+		self.__refcount = 0
+
+
+	def ref(self, n=1):
+		self.__refcount += n
+
+	def unref(self, n=1):
+		self.__refcount -= n
+		return self.__refcount <= 0
+
+
+	def on_stream(self, stream_name, data):
+		pass
+
+	def on_display_data(self, source, data, metadata):
+		pass
+
+	def on_status(self, busy):
+		pass
+
+	def on_execute_input(self, execution_count, code):
+		pass
+
+	def on_input_request(self, prompt, password, reply_callback):
+		'''
+	    	'input_request' message on STDIN socket
+
+		:param prompt: the prompt to the user
+		:param password: if True, do not echo text back to the user
+		:param reply_callback: function of the form f(value) that your code should invoke when input is available to send
+		:return:
+		'''
+		pass
+
+
+	def on_execute_ok(self, execution_count, payload, user_expressions):
+		pass
+
+	def on_execute_error(self, ename, evalue, traceback):
+		pass
+
+	def on_execute_abort(self):
+		pass
+
+
+	def on_inspect_ok(self, data, metadata):
+		pass
+
+	def on_inspect_error(self, ename, evalue, traceback):
+		pass
+
+
+	def on_complete_ok(self, matches, cursor_start, cursor_end, metadata):
+		pass
+
+	def on_complete_error(self, ename, evalue, traceback):
+		pass
+
+
+
+
+
+
+
+
+
 class KernelConnection(object):
 	'''
 	    An IPython kernel connection
@@ -114,12 +187,9 @@ class KernelConnection(object):
 	    Events that are not replies to request have associated callback attributes:
 	    on_stream: 'stream' message on IOPUB socket; f(stream_name, data)
 	    on_display_data: 'display_data' message on IOPUB socket; f(source, data, metadata)
-	    on_status: 'status' message on IOPUB socket; f(source, data, metadata)
-	    on_execute_input: 'execute_input' message on IOPUB socket; f(source, data, metadata)
+	    on_status: 'status' message on IOPUB socket; f(busy)
+	    on_execute_input: 'execute_input' message on IOPUB socket; f(execution_count, code)
 	    on_clear_output: 'clear_output' message on IOPUB socket; f(wait)
-	    on_input_request: 'input_request' message on STDIN socket; f(prompt, password, reply_callback);
-		reply_callback is a callback function f(value) passed to the on_input_request callback that
-		your code should invoke when input is available to send to the kernel
 	    on_comm_open: 'comm_open' message on IOPUB; f(comm, data); comm is Comm instance
 	    '''
 
@@ -176,9 +246,7 @@ class KernelConnection(object):
 		self._control_handler = _MessageRouter(self, 'control')
 
 		# Reply handlers
-		self.__execute_reply_handlers = {}
-		self.__inspect_reply_handlers = {}
-		self.__complete_reply_handlers = {}
+		self.__request_listeners = {}
 		self.__history_reply_handlers = {}
 		self.__connect_reply_handlers = {}
 		self.__kernel_info_reply_handlers = {}
@@ -193,7 +261,6 @@ class KernelConnection(object):
 		self.on_status = None
 		self.on_execute_input = None
 		self.on_clear_output = None
-		self.on_input_request = None
 		self.on_comm_open = None
 
 		# State
@@ -222,11 +289,6 @@ class KernelConnection(object):
 		'''
 		n_events = self.__poller.poll(timeout)
 		while n_events > 0:
-			if self.__poller.pollin(self.__shell_poll_index):
-				ident, msg = self.session.recv(self.shell)
-				ident = _unpack_ident(ident)
-				self._shell_handler.handle(ident, msg)
-
 			if self.__poller.pollin(self.__iopub_poll_index):
 				ident, msg = self.session.recv(self.iopub)
 				ident = _unpack_ident(ident)
@@ -236,6 +298,11 @@ class KernelConnection(object):
 				ident, msg = self.session.recv(self.stdin)
 				ident = _unpack_ident(ident)
 				self._stdin_handler.handle(ident, msg)
+
+			if self.__poller.pollin(self.__shell_poll_index):
+				ident, msg = self.session.recv(self.shell)
+				ident = _unpack_ident(ident)
+				self._shell_handler.handle(ident, msg)
 
 			if self.__poller.pollin(self.__control_poll_index):
 				ident, msg = self.session.recv(self.control)
@@ -251,7 +318,7 @@ class KernelConnection(object):
 
 
 	def execute_request(self, code, silent=False, store_history=True, user_expressions=None, allow_stdin=True,
-			    on_ok=None, on_error=None, on_abort=None):
+			    listener=None):
 		'''
 		Send an execute request to the remote kernel via the SHELL socket
 
@@ -273,13 +340,14 @@ class KernelConnection(object):
 			'allow_stdin': allow_stdin
 		})
 
-		if on_ok is not None or on_error is not None or on_abort is not None:
-			self.__execute_reply_handlers[msg_id] = on_ok, on_error, on_abort
+		if listener is not None:
+			self.__request_listeners[msg_id] = listener
+			listener.ref(2)
 
 		return msg_id
 
 
-	def inspect_request(self, code, cursor_pos, detail_level=0, on_ok=None, on_error=None):
+	def inspect_request(self, code, cursor_pos, detail_level=0, listener=None):
 		'''
 		Send an inspect request to the remote kernel via the SHELL socket
 
@@ -296,13 +364,14 @@ class KernelConnection(object):
 			'detail_level': detail_level
 		})
 
-		if on_ok is not None or on_error is not None:
-			self.__inspect_reply_handlers[msg_id] = on_ok, on_error
+		if listener is not None:
+			self.__request_listeners[msg_id] = listener
+			listener.ref()
 
 		return msg_id
 
 
-	def complete_request(self, code, cursor_pos, on_ok=None, on_error=None):
+	def complete_request(self, code, cursor_pos, listener=None):
 		'''
 		Send a complete request to the remote kernel via the SHELL socket
 
@@ -317,8 +386,9 @@ class KernelConnection(object):
 			'cursor_pos': cursor_pos
 		})
 
-		if on_ok is not None or on_error is not None:
-			self.__complete_reply_handlers[msg_id] = on_ok, on_error
+		if listener is not None:
+			self.__request_listeners[msg_id] = listener
+			listener.ref()
 
 		return msg_id
 
@@ -464,88 +534,78 @@ class KernelConnection(object):
 	def _handle_msg_shell_execute_reply(self, ident, msg):
 		content = msg['content']
 		status = content['status']
-		parent_msg_id = msg['parent_header']['msg_id']
-		handler = self.__execute_reply_handlers.pop(parent_msg_id, None)
-		if handler is not None:
-			on_ok, on_error, on_abort = handler
-		else:
-			on_ok = on_error = on_abort = None
-		if status == 'ok':
-			execution_count = content['execution_count']
-			payload = content['payload']
-			user_expressions = content['user_expressions']
-			if on_ok is not None:
-				on_ok(execution_count, payload, user_expressions)
-		elif status == 'error':
-			ename = content['ename']
-			evalue = content['evalue']
-			traceback = content['traceback']
-			if on_error is not None:
-				on_error(ename, evalue, traceback)
-		elif status == 'abort':
-			if on_abort is not None:
-				on_abort()
-		else:
-			raise ValueError, 'Unknown execute_reply status'
+		parent_msg_id = _get_parent_msg_id(msg)
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			if kernel_request_listener.unref():
+				del self.__request_listeners[parent_msg_id]
+			if status == 'ok':
+				execution_count = content['execution_count']
+				payload = content['payload']
+				user_expressions = content['user_expressions']
+				kernel_request_listener.on_execute_ok(execution_count, payload, user_expressions)
+			elif status == 'error':
+				ename = content['ename']
+				evalue = content['evalue']
+				traceback = content['traceback']
+				kernel_request_listener.on_execute_error(ename, evalue, traceback)
+			elif status == 'abort':
+				kernel_request_listener.on_execute_abort()
+			else:
+				raise ValueError, 'Unknown execute_reply status'
 
 	def _handle_msg_shell_inspect_reply(self, ident, msg):
 		content = msg['content']
 		status = content['status']
-		parent_msg_id = msg['parent_header']['msg_id']
-		handler = self.__inspect_reply_handlers.pop(parent_msg_id, None)
-		if handler is not None:
-			on_ok, on_error = handler
-		else:
-			on_ok = on_error = None
-		if status == 'ok':
-			data = content['data']
-			metadata = content['metadata']
-			if on_ok is not None:
-				on_ok(data, metadata)
-		elif status == 'error':
-			ename = content['ename']
-			evalue = content['evalue']
-			traceback = content['traceback']
-			if on_error is not None:
-				on_error(ename, evalue, traceback)
-		else:
-			raise ValueError, 'Unknown inspect_reply status'
+		parent_msg_id = _get_parent_msg_id(msg)
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			if kernel_request_listener.unref():
+				del self.__request_listeners[parent_msg_id]
+			if status == 'ok':
+				data = content['data']
+				metadata = content['metadata']
+				kernel_request_listener.on_inspect_ok(data, metadata)
+			elif status == 'error':
+				ename = content['ename']
+				evalue = content['evalue']
+				traceback = content['traceback']
+				kernel_request_listener.on_inspect_error(ename, evalue, traceback)
+			else:
+				raise ValueError, 'Unknown inspect_reply status'
 
 	def _handle_msg_shell_complete_reply(self, ident, msg):
 		content = msg['content']
 		status = content['status']
-		parent_msg_id = msg['parent_header']['msg_id']
-		handler = self.__complete_reply_handlers.pop(parent_msg_id, None)
-		if handler is not None:
-			on_ok, on_error = handler
-		else:
-			on_ok = on_error = None
-		if status == 'ok':
-			matches = content['matches']
-			cursor_start = content['cursor_start']
-			cursor_end = content['cursor_end']
-			metadata = content['metadata']
-			if on_ok is not None:
-				on_ok(matches, cursor_start, cursor_end, metadata)
-		elif status == 'error':
-			ename = content['ename']
-			evalue = content['evalue']
-			traceback = content['traceback']
-			if on_error is not None:
-				on_error(ename, evalue, traceback)
-		else:
-			raise ValueError, 'Unknown inspect_reply status'
+		parent_msg_id = _get_parent_msg_id(msg)
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			if kernel_request_listener.unref():
+				del self.__request_listeners[parent_msg_id]
+			if status == 'ok':
+				matches = content['matches']
+				cursor_start = content['cursor_start']
+				cursor_end = content['cursor_end']
+				metadata = content['metadata']
+				kernel_request_listener.on_complete_ok(matches, cursor_start, cursor_end, metadata)
+			elif status == 'error':
+				ename = content['ename']
+				evalue = content['evalue']
+				traceback = content['traceback']
+				kernel_request_listener.on_complete_error(ename, evalue, traceback)
+			else:
+				raise ValueError, 'Unknown inspect_reply status'
 
 	def _handle_msg_shell_history_reply(self, ident, msg):
 		content = msg['content']
-		parent_msg_id = msg['parent_header']['msg_id']
+		parent_msg_id = _get_parent_msg_id(msg)
 		on_history = self.__history_reply_handlers.pop(parent_msg_id, None)
 		if on_history is not None:
 			on_history(content['history'])
 
 	def _handle_msg_shell_connect_reply(self, ident, msg):
 		content = msg['content']
-		parent_msg_id = msg['parent_header']['msg_id']
+		parent_msg_id = _get_parent_msg_id(msg)
 		on_connect = self.__connect_reply_handlers.pop(parent_msg_id, None)
 		if on_connect is not None:
 			on_connect(content['shell_port'], content['iopub_port'], content['stdin_port'],
@@ -553,7 +613,7 @@ class KernelConnection(object):
 
 	def _handle_msg_shell_kernel_info_reply(self, ident, msg):
 		content = msg['content']
-		parent_msg_id = msg['parent_header']['msg_id']
+		parent_msg_id = _get_parent_msg_id(msg)
 		on_kernel_info = self.__kernel_info_reply_handlers.pop(parent_msg_id, None)
 		if on_kernel_info is not None:
 			on_kernel_info(content['protocol_version'],
@@ -565,37 +625,61 @@ class KernelConnection(object):
 
 	def _handle_msg_shell_shutdown_reply(self, ident, msg):
 		content = msg['content']
-		parent_msg_id = msg['parent_header']['msg_id']
+		parent_msg_id = _get_parent_msg_id(msg)
 		on_shutdown = self.__shutdown_reply_handlers.pop(parent_msg_id, None)
 		if on_shutdown is not None:
 			on_shutdown(content['restart'])
 
 	def _handle_msg_iopub_stream(self, ident, msg):
 		content = msg['content']
+		parent_msg_id = _get_parent_msg_id(msg)
+		stream_name = content['name']
+		data = content['data']
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			kernel_request_listener.on_stream(stream_name, data)
 		if self.on_stream is not None:
-			self.on_stream(content['name'], content['data'])
+			self.on_stream(stream_name, data)
 
 	def _handle_msg_iopub_display_data(self, ident, msg):
 		content = msg['content']
+		parent_msg_id = _get_parent_msg_id(msg)
+		source = content['source']
+		data = content['data']
+		metadata = content['metadata']
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			kernel_request_listener.on_display_data(source, data, metadata)
 		if self.on_display_data is not None:
-			self.on_display_data(content['source'], content['data'], content['metadata'])
+			self.on_display_data(source, data, metadata)
 
 	def _handle_msg_iopub_status(self, ident, msg):
 		content = msg['content']
 		execution_state = content['execution_state']
+		parent_msg_id = _get_parent_msg_id(msg)
 		self.__busy = execution_state == 'busy'
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			kernel_request_listener.on_status(self.__busy)
+			if not self.__busy:
+				if kernel_request_listener.unref():
+					del self.__request_listeners[parent_msg_id]
 		if self.on_status is not None:
-			self.on_status(self.__busy)
+			self.on_status(parent_msg_id, self.__busy)
 
 	def _handle_msg_iopub_pyin(self, ident, msg):
-		content = msg['content']
-		if self.on_execute_input is not None:
-			self.on_execute_input(content['execution_count'], content['code'])
+		self._handle_msg_iopub_execute_input(ident, msg)
 
 	def _handle_msg_iopub_execute_input(self, ident, msg):
 		content = msg['content']
+		parent_msg_id = _get_parent_msg_id(msg)
+		execution_count = content['execution_count']
+		code = content['code']
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			kernel_request_listener.on_execute_input(execution_count, code)
 		if self.on_execute_input is not None:
-			self.on_execute_input(content['execution_count'], content['code'])
+			self.on_execute_input(execution_count, code)
 
 	def _handle_msg_iopub_clear_output(self, ident, msg):
 		content = msg['content']
@@ -604,13 +688,15 @@ class KernelConnection(object):
 
 	def _handle_msg_stdin_input_request(self, ident, msg):
 		content = msg['content']
-		if self.on_input_request is not None:
+		parent_msg_id = _get_parent_msg_id(msg)
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
 			request_header = msg['header']
 
 			def reply_callback(value):
 				self.session.send(self.stdin, 'input_reply', {'value': value}, parent=request_header)
 
-			self.on_input_request(content['prompt'], content['password'], reply_callback)
+			kernel_request_listener.on_input_request(content['prompt'], content['password'], reply_callback)
 
 	def _handle_msg_iopub_comm_open(self, ident, msg):
 		content = msg['content']
