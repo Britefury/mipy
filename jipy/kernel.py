@@ -121,9 +121,24 @@ class KernelRequestListener (object):
 
 
 	def on_stream(self, stream_name, data):
+		"""
+		'stream' message on IOPUB socket
+
+		:param stream_name: the stream name, e.g. stdout, stderr
+		:param data: the text written to the stream
+		:return:
+		"""
 		pass
 
 	def on_display_data(self, source, data, metadata):
+		"""
+		'display_data' message on IOPUB socket
+
+		:param source:
+		:param data:
+		:param metadata:
+		:return:
+		"""
 		pass
 
 	def on_status(self, busy):
@@ -134,7 +149,7 @@ class KernelRequestListener (object):
 
 	def on_input_request(self, prompt, password, reply_callback):
 		'''
-	    	'input_request' message on STDIN socket
+		'input_request' message on STDIN socket
 
 		:param prompt: the prompt to the user
 		:param password: if True, do not echo text back to the user
@@ -153,6 +168,12 @@ class KernelRequestListener (object):
 	def on_execute_abort(self):
 		pass
 
+	def on_execute_result(self, execution_count, data, metadata):
+		pass
+
+	def on_error(self, ename, evalue, traceback):
+		pass
+
 
 	def on_inspect_ok(self, data, metadata):
 		pass
@@ -169,6 +190,59 @@ class KernelRequestListener (object):
 
 
 
+class DebugKernelRequestListener (KernelRequestListener):
+	def __init__(self, name, stdin_callback=None):
+		super(DebugKernelRequestListener, self).__init__()
+		self.name = name
+
+
+	def on_stream(self, stream_name, data):
+		print '[{0}]: stream: stream_name={1}, data={2}'.format(self.name, stream_name, data)
+
+	def on_display_data(self, source, data, metadata):
+		print '[{0}]: display_data: source={1}, data={2}, metadata={3}'.format(self.name, source, data, metadata)
+
+	def on_status(self, busy):
+		print '[{0}]: status: busy={1}'.format(self.name, busy)
+
+	def on_execute_input(self, execution_count, code):
+		print '[{0}]: execute_input: execution_count={1}, code={2}'.format(self.name, execution_count, code)
+
+	def on_input_request(self, prompt, password, reply_callback):
+		print '[{0}]: input_request: prompt={1}, password={2}'.format(self.name, prompt, password)
+		data = raw_input(prompt)
+		reply_callback(data)
+
+
+	def on_execute_ok(self, execution_count, payload, user_expressions):
+		print '[{0}]: execute_reply OK: execution_count={1}, payload={2}, user_expressions={3}'.format(self.name, execution_count, payload, user_expressions)
+
+	def on_execute_error(self, ename, evalue, traceback):
+		print '[{0}]: execute_reply ERROR: ename={1}, evalue={2}, traceback={3}'.format(self.name, ename, evalue, traceback)
+
+	def on_execute_abort(self):
+		print '[{0}]: execute_reply ABORT'.format(self.name)
+
+	def on_execute_result(self, execution_count, data, metadata):
+		print '[{0}]: execute_result: execution_count={1}, data={2}, metadata={3}'.format(self.name, execution_count, data, metadata)
+
+	def on_error(self, ename, evalue, traceback):
+		print '[{0}]: error: ename={1}, evalue={2}, traceback={3}'.format(self.name, ename, evalue, traceback)
+
+
+	def on_inspect_ok(self, data, metadata):
+		print '[{0}]: inspect_reply OK: data={1}, metadata={2}'.format(self.name, data, metadata)
+
+	def on_inspect_error(self, ename, evalue, traceback):
+		print '[{0}]: inspect_reply ERROR: ename={1}, evalue={2}, traceback={3}'.format(self.name, ename, evalue, traceback)
+
+
+	def on_complete_ok(self, matches, cursor_start, cursor_end, metadata):
+		print '[{0}]: complete_reply OK: matches={1}, cursor_start={2}, cursor_end={3}, metadata={4}'.format(self.name, matches,
+														     cursor_start, cursor_end, metadata)
+
+	def on_complete_error(self, ename, evalue, traceback):
+		print '[{0}]: complete_reply ERROR: ename={1}, evalue={2}, traceback={3}'.format(self.name, ename, evalue, traceback)
 
 
 
@@ -552,6 +626,37 @@ class KernelConnection(object):
 				raise ValueError, 'Unknown execute_reply status'
 		else:
 			print 'No listener for execute_reply'
+
+	def _handle_msg_iopub_pyout(self, ident, msg):
+		self._handle_msg_iopub_execute_result(ident, msg)
+
+	def _handle_msg_iopub_execute_result(self, ident, msg):
+		content = msg['content']
+		parent_msg_id = _get_parent_msg_id(msg)
+		execution_count = content['execution_count']
+		data = content['data']
+		metadata = content['metadata']
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			kernel_request_listener.on_execute_result(execution_count, data, metadata)
+		else:
+			print 'No listener for execute_result'
+
+	def _handle_msg_iopub_pyerr(self, ident, msg):
+		self._handle_msg_iopub_error(ident, msg)
+
+	def _handle_msg_iopub_error(self, ident, msg):
+		content = msg['content']
+		parent_msg_id = _get_parent_msg_id(msg)
+		ename = content['ename']
+		evalue = content['evalue']
+		traceback = content['traceback']
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+		if kernel_request_listener is not None:
+			kernel_request_listener.on_error(ename, evalue, traceback)
+		else:
+			print 'No listener for execute_result'
+
 
 	def _handle_msg_shell_inspect_reply(self, ident, msg):
 		content = msg['content']
