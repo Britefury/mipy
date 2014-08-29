@@ -561,8 +561,7 @@ class KernelConnection(object):
 
 
 
-	@property
-	def open(self):
+	def is_open(self):
 		return self._open
 
 
@@ -1123,12 +1122,19 @@ class IPythonKernelProcess (object):
 		self.__kernels.append(self)
 
 
+	def is_open(self):
+		return self.__connection.is_open()   if self.__connection is not None   else None
+
+
 	def close(self):
 		if self.__connection is not None:
 			self.__connection.close()
 		self.__proc.terminate()
 		if os.path.exists(self.__connection_file_path):
 			os.remove(self.__connection_file_path)
+
+
+
 
 
 	@property
