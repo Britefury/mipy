@@ -462,6 +462,9 @@ class DebugKernelRequestListener (KernelRequestListener):
 
 
 class KernelConnection(object):
+	__ctx = None
+	__ctx_ref_count = 0
+
 	'''
 	    An IPython kernel connection
 
@@ -503,7 +506,10 @@ class KernelConnection(object):
 		control_port = connection['control_port']
 
 		# JeroMQ context
-		self.__ctx = ZMQ.context(1)
+		cls = type(self)
+		if cls.__ctx is None:
+			cls.__ctx = ZMQ.context(1)
+		cls.__ctx_ref_count += 1
 
 		# Create the four IPython sockets; SHELL, IOPUB, STDIN and CONTROL
 		self.shell = self.__ctx.socket(ZMQ.DEALER)
@@ -569,7 +575,11 @@ class KernelConnection(object):
 		self.iopub.close()
 		self.stdin.close()
 		self.control.close()
-		self.__ctx.close()
+		cls = type(self)
+		cls.__ctx_ref_count -= 1
+		if cls.__ctx_ref_count == 0:
+			cls.__ctx.close()
+			cls.__ctx = None
 		self._open = False
 
 
@@ -579,10 +589,13 @@ class KernelConnection(object):
 
 		:param timeout: The amount of time to wait for a message in milliseconds.
 			-1 = wait indefinitely, 0 = return immediately,
-		:return:
+		:return: a boolean indicating if events were processed
 		'''
+		processed_events = False
 		if self._open:
 			n_events = self.__poller.poll(timeout)
+			if n_events > 0:
+				processed_events = True
 			while n_events > 0:
 				if self.__poller.pollin(self.__iopub_poll_index):
 					ident, msg = self.session.recv(self.iopub)
@@ -605,6 +618,7 @@ class KernelConnection(object):
 					self._control_handler.handle(ident, msg)
 
 				n_events = self.__poller.poll(0)
+		return processed_events
 
 
 	@property
@@ -1110,8 +1124,8 @@ class IPythonKernelProcess (object):
 
 
 	def close(self):
-		if self.connection is not None:
-			self.connection.close()
+		if self.__connection is not None:
+			self.__connection.close()
 		self.__proc.terminate()
 		if os.path.exists(self.__connection_file_path):
 			os.remove(self.__connection_file_path)
