@@ -316,7 +316,7 @@ class Comm(object):
 
 
 def _get_parent_msg_id(msg):
-	return msg['parent_header']['msg_id']
+	return msg['parent_header'].get('msg_id')
 
 
 class KernelRequestListener (object):
@@ -402,9 +402,9 @@ class KernelRequestListener (object):
 
 
 
-class DebugKernelRequestListener (KernelRequestListener):
-	def __init__(self, name, stdin_callback=None):
-		super(DebugKernelRequestListener, self).__init__()
+class PrintKernelRequestListener (KernelRequestListener):
+	def __init__(self, name):
+		super(PrintKernelRequestListener, self).__init__()
 		self.name = name
 
 
@@ -455,6 +455,70 @@ class DebugKernelRequestListener (KernelRequestListener):
 
 	def on_complete_error(self, ename, evalue, traceback):
 		print '[{0}]: complete_reply ERROR: ename={1}, evalue={2}, traceback={3}'.format(self.name, ename, evalue, traceback)
+
+
+
+def krn_event(name, **kwargs):
+	return dict(event_name=name, **kwargs)
+
+
+class EventLogKernelRequestListener (KernelRequestListener):
+	def __init__(self, on_input_callback):
+		super(EventLogKernelRequestListener, self).__init__()
+		self.events = []
+		self.__on_input_callback = on_input_callback
+
+
+	def clear(self):
+		self.events = []
+
+
+	def on_stream(self, stream_name, data):
+		self.events.append(krn_event('on_stream', stream_name=stream_name, data=data))
+
+	def on_display_data(self, source, data, metadata):
+		self.events.append(krn_event('on_display_data', source=source, data=data, metadata=metadata))
+
+	def on_status(self, busy):
+		self.events.append(krn_event('on_status', busy=busy))
+
+	def on_execute_input(self, execution_count, code):
+		self.events.append(krn_event('on_execute_input', execution_count=execution_count, code=code))
+
+	def on_input_request(self, prompt, password, reply_callback):
+		self.events.append(krn_event('on_input_request', prompt=prompt, password=password))
+		data = self.__on_input_callback(prompt)
+		reply_callback(data)
+
+
+	def on_execute_ok(self, execution_count, payload, user_expressions):
+		self.events.append(krn_event('on_execute_ok', execution_count=execution_count, payload=payload, user_expressions=user_expressions))
+
+	def on_execute_error(self, ename, evalue, traceback):
+		self.events.append(krn_event('on_execute_error', ename=ename, evalue=evalue, traceback=traceback))
+
+	def on_execute_abort(self):
+		self.events.append(krn_event('on_execute_abort'))
+
+	def on_execute_result(self, execution_count, data, metadata):
+		self.events.append(krn_event('on_execute_result', execution_count=execution_count, data=data, metadata=metadata))
+
+	def on_error(self, ename, evalue, traceback):
+		self.events.append(krn_event('on_error', ename=ename, evalue=evalue, traceback=traceback))
+
+
+	def on_inspect_ok(self, data, metadata):
+		self.events.append(krn_event('on_inspect_ok', data=data, metadata=metadata))
+
+	def on_inspect_error(self, ename, evalue, traceback):
+		self.events.append(krn_event('on_inspect_error', ename=ename, evalue=evalue, traceback=traceback))
+
+
+	def on_complete_ok(self, matches, cursor_start, cursor_end, metadata):
+		self.events.append(krn_event('on_complete_ok', matches=matches, cursor_start=cursor_start, cursor_end=cursor_end, metadata=metadata))
+
+	def on_complete_error(self, ename, evalue, traceback):
+		self.events.append(krn_event('on_complete_error', ename=ename, evalue=evalue, traceback=traceback))
 
 
 
@@ -1105,7 +1169,7 @@ __ipython_processes = []
 class IPythonKernelProcess (object):
 	__kernels = []
 
-	def __init__(self, connection_file_path=None):
+	def __init__(self, connection_file_path=None, python_path=None):
 		# If no connection file path was specified, generate one
 		if connection_file_path is None:
 			handle, connection_file_path = tempfile.mkstemp(suffix='.json', prefix='kernel')
@@ -1115,7 +1179,17 @@ class IPythonKernelProcess (object):
 		self.__connection_file_path = connection_file_path
 
 		# Spawn the kernel in a sub-process
-		self.__proc = subprocess.Popen(['ipython', 'kernel', '-f', self.__connection_file_path])
+		env = None
+		ipython_executable = 'ipython'
+		if python_path is not None:
+			env = os.environ.copy()
+			path = env.get('PATH', '')
+			if len(path) > 0:
+				path = os.path.join(python_path, 'bin') + os.pathsep + path
+			env['PATH'] = path
+			env['PYTHON_PATH'] = python_path
+		self.__proc = subprocess.Popen([ipython_executable, 'kernel', '-f', self.__connection_file_path],
+					       env=env, stdout=subprocess.PIPE)
 
 		self.__connection = None
 
@@ -1148,3 +1222,166 @@ class IPythonKernelProcess (object):
 					pass
 		return self.__connection
 
+
+
+import unittest, sys, os, time
+
+class TestCase_jipy_kernel (unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		# Start the IPython kernel process
+		cls.krn_proc = IPythonKernelProcess()
+
+		while cls.krn_proc.connection is None:
+			time.sleep(0.1)
+
+		cls.krn = cls.krn_proc.connection
+
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.krn = None
+		cls.krn_proc.close()
+
+	def __show_evs(self, evs1, evs2):
+		print 'EVENTS LIST A'
+		print '-------------'
+		for a in evs1:
+			print a
+		print ''
+		print 'EVENTS LIST B'
+		print '-------------'
+		for a in evs2:
+			print a
+
+	def assertEventListsEqual(self, evs1, evs2):
+		evs_a = evs1[:]
+		evs_b = evs2[:]
+		for a in evs_a:
+			try:
+				evs_b.remove(a)
+			except ValueError:
+				print 'Event {0} present in first list but NOT present in second'.format(a)
+				self.__show_evs(evs1, evs2)
+				print
+				self.fail()
+		for b in evs_b:
+			print 'Event {0} NOT present in first list but present in second'.format(b)
+			self.__show_evs(evs1, evs2)
+			print
+			self.fail()
+
+
+
+	def _make_event_log_listener(self, on_input=None):
+		if on_input is None:
+			on_input = lambda prompt: 'test_input'
+		return EventLogKernelRequestListener(on_input)
+
+
+	def test_010_krn_import_time(self):
+		ev = self._make_event_log_listener()
+
+		code = 'import time, sys\n'
+
+		self.krn.execute_request(code, listener=ev)
+		while len(ev.events) < 4:
+			self.krn.poll(-1)
+
+		self.assertEventListsEqual(ev.events, [
+			krn_event('on_status', busy=True),
+			krn_event('on_execute_input', code=code, execution_count=1),
+			krn_event('on_execute_ok', execution_count=1, payload=[], user_expressions={}),
+			krn_event('on_status', busy=False),
+			])
+
+
+	def test_020_krn_sleep(self):
+		ev = self._make_event_log_listener()
+
+		code = 'time.sleep(0.1)\n'
+
+		self.krn.execute_request(code, listener=ev)
+		while len(ev.events) < 4:
+			self.krn.poll(-1)
+
+		self.assertEventListsEqual(ev.events, [
+			krn_event('on_status', busy=True),
+			krn_event('on_execute_input', code=code, execution_count=2),
+			krn_event('on_execute_ok', execution_count=2, payload=[], user_expressions={}),
+			krn_event('on_status', busy=False),
+			])
+
+
+	def test_030_krn_stdout(self):
+		ev = self._make_event_log_listener()
+
+		code = 'print "Hello world"\n'
+
+		self.krn.execute_request(code, listener=ev)
+		while len(ev.events) < 5:
+			self.krn.poll(-1)
+
+		self.assertEventListsEqual(ev.events, [
+			krn_event('on_status', busy=True),
+			krn_event('on_execute_input', code=code, execution_count=3),
+			krn_event('on_execute_ok', execution_count=3, payload=[], user_expressions={}),
+			krn_event('on_stream', stream_name='stdout', data='Hello world\n'),
+			krn_event('on_status', busy=False),
+			])
+
+
+	def test_040_expr(self):
+		ev = self._make_event_log_listener()
+
+		code = '3.141\n'
+
+		self.krn.execute_request(code, listener=ev)
+		while len(ev.events) < 5:
+			self.krn.poll(-1)
+
+		self.assertEventListsEqual(ev.events, [
+			krn_event('on_status', busy=True),
+			krn_event('on_execute_input', code=code, execution_count=4),
+			krn_event('on_execute_ok', execution_count=4, payload=[], user_expressions={}),
+			krn_event('on_execute_result', execution_count=4, data={'text/plain': '3.141'}, metadata={}),
+			krn_event('on_status', busy=False),
+			])
+
+
+	def test_050_raise(self):
+		ev = self._make_event_log_listener()
+
+		code = 'raise ValueError\n'
+
+		self.krn.execute_request(code, listener=ev)
+		while len(ev.events) < 5:
+			self.krn.poll(-1)
+
+		tb = [u'\x1b[0;31m---------------------------------------------------------------------------\x1b[0m\n\x1b[0;31mValueError\x1b[0m                                Traceback (most recent call last)',
+		      u'\x1b[0;32m<ipython-input-5-94ef6d30a139>\x1b[0m in \x1b[0;36m<module>\x1b[0;34m()\x1b[0m\n\x1b[0;32m----> 1\x1b[0;31m \x1b[0;32mraise\x1b[0m \x1b[0mValueError\x1b[0m\x1b[0;34m\x1b[0m\x1b[0m\n\x1b[0m',
+		      u'\x1b[0;31mValueError\x1b[0m: ']
+
+		self.assertEventListsEqual(ev.events, [
+			krn_event('on_status', busy=True),
+			krn_event('on_execute_input', code=code, execution_count=5),
+			krn_event('on_execute_error', ename='ValueError', evalue='', traceback=tb),
+			krn_event('on_error', ename='ValueError', evalue='', traceback=tb),
+			krn_event('on_status', busy=False),
+			])
+
+
+def test_poll_speed():
+	krn_proc = IPythonKernelProcess()
+
+	while krn_proc.connection is None:
+		time.sleep(0.1)
+
+	krn = krn_proc.connection
+
+	N_POLLS = 1024
+	t1 = datetime.datetime.now()
+	for i in xrange(N_POLLS):
+		krn.poll(0)
+	t2 = datetime.datetime.now()
+	print 'Polling {0} times took {1}'.format(N_POLLS, t2 - t1)
