@@ -320,6 +320,17 @@ def _get_parent_msg_id(msg):
 
 
 class KernelRequestListener (object):
+	"""
+	A listener passed to request methods of the `KernelConnection` class.
+
+	This listener will receive events back from the kernel as they come.
+
+
+	Notes about event ordering:
+
+	Events will be received in-order on a specific socket. The order of messages arriving on different
+	is arbitrary.
+	"""
 	def __init__(self):
 		self.__refcount = 0
 
@@ -338,7 +349,6 @@ class KernelRequestListener (object):
 
 		:param stream_name: the stream name, e.g. stdout, stderr
 		:param data: the text written to the stream
-		:return:
 		"""
 		pass
 
@@ -346,17 +356,27 @@ class KernelRequestListener (object):
 		"""
 		'display_data' message on IOPUB socket
 
-		:param source:
-		:param data:
-		:param metadata:
-		:return:
+		:param source: who created the data
+		:param data: dictionary mapping MIME type to raw data representation in that format
+		:param metadata: metadata describing the content of `data`
 		"""
 		pass
 
 	def on_status(self, busy):
+		"""
+		'status' message on IOPUB socket
+
+		:param busy: boolean indicating the busy status of the kernel
+		"""
 		pass
 
 	def on_execute_input(self, execution_count, code):
+		"""
+		'execute_input' message on IOPUB socket
+
+		:param execution_count: the execution count
+		:param code: the code that was scheduled for execution
+		"""
 		pass
 
 	def on_input_request(self, prompt, password, reply_callback):
@@ -366,38 +386,96 @@ class KernelRequestListener (object):
 		:param prompt: the prompt to the user
 		:param password: if True, do not echo text back to the user
 		:param reply_callback: function of the form f(value) that your code should invoke when input is available to send
-		:return:
 		'''
 		pass
 
 
 	def on_execute_ok(self, execution_count, payload, user_expressions):
+		"""
+		'execute_reply' message with status='ok' on SHELL socket
+
+		:param execution_count: execution count
+		:param payload: list of dicts; see http://ipython.org/ipython-doc/dev/development/messaging.html
+		:param user_expressions: reply to user_expressions in execute_request message
+		"""
 		pass
 
 	def on_execute_error(self, ename, evalue, traceback):
+		"""
+		'execute_reply' message with status='error' on SHELL socket
+
+		:param ename: exception name
+		:param evalue: exception value/message
+		:param traceback: traceback as a list of strings
+		"""
 		pass
 
 	def on_execute_abort(self):
+		"""
+		'execute_reply' message with status='abort' on SHELL socket
+		"""
 		pass
 
 	def on_execute_result(self, execution_count, data, metadata):
+		"""
+		'execute_result' message on IOPUB socket
+
+		:param execution_count: execution count
+		:param data: dictionary mapping MIME type to raw data representation in that format
+		:param metadata: metadata describing the content of `data`
+		"""
 		pass
 
 	def on_error(self, ename, evalue, traceback):
+		"""
+		'error' message on IOPUB socket
+
+		:param ename: exception name
+		:param evalue: exception value/message
+		:param traceback: traceback as a list of strings
+		"""
 		pass
 
 
 	def on_inspect_ok(self, data, metadata):
+		"""
+		'inspect_reply' message with status='ok' on SHELL socket
+
+		:param data:
+		:param metadata:
+		"""
 		pass
 
 	def on_inspect_error(self, ename, evalue, traceback):
+		"""
+		'inspect_reply' message with status='error' on SHELL socket
+
+		:param ename: exception name
+		:param evalue: exception value/message
+		:param traceback: traceback as a list of strings
+		"""
 		pass
 
 
 	def on_complete_ok(self, matches, cursor_start, cursor_end, metadata):
+		"""
+		'complete_reply' message with status='ok' on SHELL socket
+
+		:param matches:
+		:param cursor_start:
+		:param cursor_end:
+		:param metadata:
+		"""
 		pass
 
 	def on_complete_error(self, ename, evalue, traceback):
+		"""
+		'complete_reply' message with status='error' on SHELL socket
+
+		:param ename: exception name
+		:param evalue: exception value/message
+		:param traceback: traceback as a list of strings
+		"""
 		pass
 
 
@@ -1011,7 +1089,7 @@ class KernelConnection(object):
 				traceback = content['traceback']
 				kernel_request_listener.on_complete_error(ename, evalue, traceback)
 			else:
-				raise ValueError, 'Unknown inspect_reply status'
+				raise ValueError, 'Unknown complete_reply status'
 		else:
 			print 'No listener for complete_reply'
 
