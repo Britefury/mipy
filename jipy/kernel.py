@@ -319,7 +319,7 @@ def _get_parent_msg_id(msg):
 	return msg['parent_header'].get('msg_id')
 
 
-class KernelRequestListener (object):
+class AbstractKernelRequestListener (object):
 	"""
 	A listener passed to request methods of the `KernelConnection` class.
 
@@ -331,18 +331,6 @@ class KernelRequestListener (object):
 	Events will be received in-order on a specific socket. The order of messages arriving on different
 	is arbitrary.
 	"""
-	def __init__(self):
-		self.__refcount = 0
-
-
-	def ref(self, n=1):
-		self.__refcount += n
-
-	def unref(self, n=1):
-		self.__refcount -= n
-		return self.__refcount <= 0
-
-
 	def on_stream(self, stream_name, data):
 		"""
 		'stream' message on IOPUB socket
@@ -362,23 +350,6 @@ class KernelRequestListener (object):
 		"""
 		pass
 
-	def on_status(self, busy):
-		"""
-		'status' message on IOPUB socket
-
-		:param busy: boolean indicating the busy status of the kernel
-		"""
-		pass
-
-	def on_execute_input(self, execution_count, code):
-		"""
-		'execute_input' message on IOPUB socket
-
-		:param execution_count: the execution count
-		:param code: the code that was scheduled for execution
-		"""
-		pass
-
 	def on_input_request(self, prompt, password, reply_callback):
 		'''
 		'input_request' message on STDIN socket
@@ -387,6 +358,39 @@ class KernelRequestListener (object):
 		:param password: if True, do not echo text back to the user
 		:param reply_callback: function of the form f(value) that your code should invoke when input is available to send
 		'''
+		pass
+
+	def on_status(self, busy):
+		"""
+		'status' message on IOPUB socket
+
+		:param busy: boolean indicating the busy status of the kernel
+		"""
+		pass
+
+
+
+
+
+class ExecuteRequestListener (AbstractKernelRequestListener):
+	"""
+	A listener passed to request methods of the `KernelConnection` class.
+
+	This listener will receive events back from the kernel as they come.
+
+
+	Notes about event ordering:
+
+	Events will be received in-order on a specific socket. The order of messages arriving on different
+	is arbitrary.
+	"""
+	def on_execute_input(self, execution_count, code):
+		"""
+		'execute_input' message on IOPUB socket
+
+		:param execution_count: the execution count
+		:param code: the code that was scheduled for execution
+		"""
 		pass
 
 
@@ -436,7 +440,28 @@ class KernelRequestListener (object):
 		"""
 		pass
 
+	def on_execute_finished(self):
+		"""
+		Invoked when all messages have been received that indicate that execution has finished.
+		Will be the last event that is received.
+		"""
+		pass
 
+
+
+
+class InspectRequestListener (AbstractKernelRequestListener):
+	"""
+	A listener passed to request methods of the `KernelConnection` class.
+
+	This listener will receive events back from the kernel as they come.
+
+
+	Notes about event ordering:
+
+	Events will be received in-order on a specific socket. The order of messages arriving on different
+	is arbitrary.
+	"""
 	def on_inspect_ok(self, data, metadata):
 		"""
 		'inspect_reply' message with status='ok' on SHELL socket
@@ -457,6 +482,20 @@ class KernelRequestListener (object):
 		pass
 
 
+
+
+class CompleteRequestListener (AbstractKernelRequestListener):
+	"""
+	A listener passed to request methods of the `KernelConnection` class.
+
+	This listener will receive events back from the kernel as they come.
+
+
+	Notes about event ordering:
+
+	Events will be received in-order on a specific socket. The order of messages arriving on different
+	is arbitrary.
+	"""
 	def on_complete_ok(self, matches, cursor_start, cursor_end, metadata):
 		"""
 		'complete_reply' message with status='ok' on SHELL socket
@@ -480,9 +519,9 @@ class KernelRequestListener (object):
 
 
 
-class PrintKernelRequestListener (KernelRequestListener):
+
+class PrintKernelRequestListenerMixin (object):
 	def __init__(self, name):
-		super(PrintKernelRequestListener, self).__init__()
 		self.name = name
 
 
@@ -495,13 +534,20 @@ class PrintKernelRequestListener (KernelRequestListener):
 	def on_status(self, busy):
 		print '[{0}]: status: busy={1}'.format(self.name, busy)
 
-	def on_execute_input(self, execution_count, code):
-		print '[{0}]: execute_input: execution_count={1}, code={2}'.format(self.name, execution_count, code)
-
 	def on_input_request(self, prompt, password, reply_callback):
 		print '[{0}]: input_request: prompt={1}, password={2}'.format(self.name, prompt, password)
 		data = raw_input(prompt)
 		reply_callback(data)
+
+
+
+class PrintExecuteRequestListener (PrintKernelRequestListenerMixin, ExecuteRequestListener):
+	def __init__(self, name):
+		PrintKernelRequestListenerMixin.__init__(self, name)
+
+
+	def on_execute_input(self, execution_count, code):
+		print '[{0}]: execute_input: execution_count={1}, code={2}'.format(self.name, execution_count, code)
 
 
 	def on_execute_ok(self, execution_count, payload, user_expressions):
@@ -519,6 +565,13 @@ class PrintKernelRequestListener (KernelRequestListener):
 	def on_error(self, ename, evalue, traceback):
 		print '[{0}]: error: ename={1}, evalue={2}, traceback={3}'.format(self.name, ename, evalue, traceback)
 
+	def on_execute_finished(self):
+		print '[{0}]: execute_finished'.format(self.name)
+
+
+class PrintInspectRequestListener (PrintKernelRequestListenerMixin, InspectRequestListener):
+	def __init__(self, name):
+		PrintKernelRequestListenerMixin.__init__(self, name)
 
 	def on_inspect_ok(self, data, metadata):
 		print '[{0}]: inspect_reply OK: data={1}, metadata={2}'.format(self.name, data, metadata)
@@ -526,6 +579,10 @@ class PrintKernelRequestListener (KernelRequestListener):
 	def on_inspect_error(self, ename, evalue, traceback):
 		print '[{0}]: inspect_reply ERROR: ename={1}, evalue={2}, traceback={3}'.format(self.name, ename, evalue, traceback)
 
+
+class PrintCompleteRequestListener (PrintKernelRequestListenerMixin, CompleteRequestListener):
+	def __init__(self, name):
+		PrintKernelRequestListenerMixin.__init__(self, name)
 
 	def on_complete_ok(self, matches, cursor_start, cursor_end, metadata):
 		print '[{0}]: complete_reply OK: matches={1}, cursor_start={2}, cursor_end={3}, metadata={4}'.format(self.name, matches,
@@ -540,9 +597,8 @@ def krn_event(name, **kwargs):
 	return dict(event_name=name, **kwargs)
 
 
-class EventLogKernelRequestListener (KernelRequestListener):
+class EventLogKernelRequestListenerMixin (object):
 	def __init__(self, on_input_callback):
-		super(EventLogKernelRequestListener, self).__init__()
 		self.events = []
 		self.__on_input_callback = on_input_callback
 
@@ -560,13 +616,20 @@ class EventLogKernelRequestListener (KernelRequestListener):
 	def on_status(self, busy):
 		self.events.append(krn_event('on_status', busy=busy))
 
-	def on_execute_input(self, execution_count, code):
-		self.events.append(krn_event('on_execute_input', execution_count=execution_count, code=code))
-
 	def on_input_request(self, prompt, password, reply_callback):
 		self.events.append(krn_event('on_input_request', prompt=prompt, password=password))
 		data = self.__on_input_callback(prompt)
 		reply_callback(data)
+
+
+
+
+class EventLogExecuteRequestListener (EventLogKernelRequestListenerMixin, ExecuteRequestListener):
+	def __init__(self, on_input_callback):
+		EventLogKernelRequestListenerMixin.__init__(self, on_input_callback)
+
+	def on_execute_input(self, execution_count, code):
+		self.events.append(krn_event('on_execute_input', execution_count=execution_count, code=code))
 
 
 	def on_execute_ok(self, execution_count, payload, user_expressions):
@@ -584,6 +647,13 @@ class EventLogKernelRequestListener (KernelRequestListener):
 	def on_error(self, ename, evalue, traceback):
 		self.events.append(krn_event('on_error', ename=ename, evalue=evalue, traceback=traceback))
 
+	def on_execute_finished(self):
+		self.events.append(krn_event('on_execute_finished'))
+
+
+class EventLogInspectRequestListener (EventLogKernelRequestListenerMixin, InspectRequestListener):
+	def __init__(self, on_input_callback):
+		EventLogKernelRequestListenerMixin.__init__(self, on_input_callback)
 
 	def on_inspect_ok(self, data, metadata):
 		self.events.append(krn_event('on_inspect_ok', data=data, metadata=metadata))
@@ -591,6 +661,11 @@ class EventLogKernelRequestListener (KernelRequestListener):
 	def on_inspect_error(self, ename, evalue, traceback):
 		self.events.append(krn_event('on_inspect_error', ename=ename, evalue=evalue, traceback=traceback))
 
+
+
+class EventLogCompleteRequestListener (EventLogKernelRequestListenerMixin, CompleteRequestListener):
+	def __init__(self, on_input_callback):
+		EventLogKernelRequestListenerMixin.__init__(self, on_input_callback)
 
 	def on_complete_ok(self, matches, cursor_start, cursor_end, metadata):
 		self.events.append(krn_event('on_complete_ok', matches=matches, cursor_start=cursor_start, cursor_end=cursor_end, metadata=metadata))
@@ -683,6 +758,7 @@ class KernelConnection(object):
 		self._control_handler = _MessageRouter(self, 'control')
 
 		# Reply handlers
+		self.__execute_request_refcounts = {}
 		self.__request_listeners = {}
 		self.__history_reply_handlers = {}
 		self.__connect_reply_handlers = {}
@@ -793,9 +869,19 @@ class KernelConnection(object):
 
 			if listener is not None:
 				self.__request_listeners[msg_id] = listener
-				listener.ref(2)
+				self.__execute_request_refcounts[msg_id] = 2
 
 			return msg_id
+
+
+	def __unref_execute_request_listener(self, parent_msg_id, execute_request_listener):
+		if parent_msg_id in self.__execute_request_refcounts:
+			self.__execute_request_refcounts[parent_msg_id] -= 1
+			refcount = self.__execute_request_refcounts[parent_msg_id]
+			if refcount == 0:
+				del self.__execute_request_refcounts[parent_msg_id]
+				del self.__request_listeners[parent_msg_id]
+				execute_request_listener.on_execute_finished()
 
 
 	def inspect_request(self, code, cursor_pos, detail_level=0, listener=None):
@@ -818,7 +904,6 @@ class KernelConnection(object):
 
 			if listener is not None:
 				self.__request_listeners[msg_id] = listener
-				listener.ref()
 
 			return msg_id
 
@@ -841,7 +926,6 @@ class KernelConnection(object):
 
 			if listener is not None:
 				self.__request_listeners[msg_id] = listener
-				listener.ref()
 
 			return msg_id
 
@@ -995,24 +1079,23 @@ class KernelConnection(object):
 		content = msg['content']
 		status = content['status']
 		parent_msg_id = _get_parent_msg_id(msg)
-		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
-		if kernel_request_listener is not None:
-			if kernel_request_listener.unref():
-				del self.__request_listeners[parent_msg_id]
+		execute_request_listener = self.__request_listeners.get(parent_msg_id)
+		if execute_request_listener is not None:
 			if status == 'ok':
 				execution_count = content['execution_count']
 				payload = content['payload']
 				user_expressions = content['user_expressions']
-				kernel_request_listener.on_execute_ok(execution_count, payload, user_expressions)
+				execute_request_listener.on_execute_ok(execution_count, payload, user_expressions)
 			elif status == 'error':
 				ename = content['ename']
 				evalue = content['evalue']
 				traceback = content['traceback']
-				kernel_request_listener.on_execute_error(ename, evalue, traceback)
+				execute_request_listener.on_execute_error(ename, evalue, traceback)
 			elif status == 'abort':
-				kernel_request_listener.on_execute_abort()
+				execute_request_listener.on_execute_abort()
 			else:
 				raise ValueError, 'Unknown execute_reply status'
+			self.__unref_execute_request_listener(parent_msg_id, execute_request_listener)
 		else:
 			print 'No listener for execute_reply'
 
@@ -1167,8 +1250,7 @@ class KernelConnection(object):
 		if kernel_request_listener is not None:
 			kernel_request_listener.on_status(self.__busy)
 			if not self.__busy:
-				if kernel_request_listener.unref():
-					del self.__request_listeners[parent_msg_id]
+				self.__unref_execute_request_listener(parent_msg_id, kernel_request_listener)
 		if self.on_status is not None:
 			self.on_status(parent_msg_id, self.__busy)
 
@@ -1351,14 +1433,14 @@ class TestCase_jipy_kernel (unittest.TestCase):
 
 
 
-	def _make_event_log_listener(self, on_input=None):
+	def _make_event_log_exec_listener(self, on_input=None):
 		if on_input is None:
 			on_input = lambda prompt: 'test_input'
-		return EventLogKernelRequestListener(on_input)
+		return EventLogExecuteRequestListener(on_input)
 
 
 	def test_010_krn_import_time(self):
-		ev = self._make_event_log_listener()
+		ev = self._make_event_log_exec_listener()
 
 		code = 'import time, sys\n'
 
@@ -1371,16 +1453,18 @@ class TestCase_jipy_kernel (unittest.TestCase):
 			krn_event('on_execute_input', code=code, execution_count=1),
 			krn_event('on_execute_ok', execution_count=1, payload=[], user_expressions={}),
 			krn_event('on_status', busy=False),
+			krn_event('on_execute_finished'),
 			])
+		self.assertEqual(ev.events[-1]['event_name'], 'on_execute_finished')
 
 
 	def test_020_krn_sleep(self):
-		ev = self._make_event_log_listener()
+		ev = self._make_event_log_exec_listener()
 
 		code = 'time.sleep(0.1)\n'
 
 		self.krn.execute_request(code, listener=ev)
-		while len(ev.events) < 4:
+		while len(ev.events) < 5:
 			self.krn.poll(-1)
 
 		self.assertEventListsEqual(ev.events, [
@@ -1388,16 +1472,18 @@ class TestCase_jipy_kernel (unittest.TestCase):
 			krn_event('on_execute_input', code=code, execution_count=2),
 			krn_event('on_execute_ok', execution_count=2, payload=[], user_expressions={}),
 			krn_event('on_status', busy=False),
+			krn_event('on_execute_finished'),
 			])
+		self.assertEqual(ev.events[-1]['event_name'], 'on_execute_finished')
 
 
 	def test_030_krn_stdout(self):
-		ev = self._make_event_log_listener()
+		ev = self._make_event_log_exec_listener()
 
 		code = 'print "Hello world"\n'
 
 		self.krn.execute_request(code, listener=ev)
-		while len(ev.events) < 5:
+		while len(ev.events) < 6:
 			self.krn.poll(-1)
 
 		self.assertEventListsEqual(ev.events, [
@@ -1406,16 +1492,18 @@ class TestCase_jipy_kernel (unittest.TestCase):
 			krn_event('on_execute_ok', execution_count=3, payload=[], user_expressions={}),
 			krn_event('on_stream', stream_name='stdout', data='Hello world\n'),
 			krn_event('on_status', busy=False),
+			krn_event('on_execute_finished'),
 			])
+		self.assertEqual(ev.events[-1]['event_name'], 'on_execute_finished')
 
 
 	def test_040_expr(self):
-		ev = self._make_event_log_listener()
+		ev = self._make_event_log_exec_listener()
 
 		code = '3.141\n'
 
 		self.krn.execute_request(code, listener=ev)
-		while len(ev.events) < 5:
+		while len(ev.events) < 6:
 			self.krn.poll(-1)
 
 		self.assertEventListsEqual(ev.events, [
@@ -1424,16 +1512,18 @@ class TestCase_jipy_kernel (unittest.TestCase):
 			krn_event('on_execute_ok', execution_count=4, payload=[], user_expressions={}),
 			krn_event('on_execute_result', execution_count=4, data={'text/plain': '3.141'}, metadata={}),
 			krn_event('on_status', busy=False),
+			krn_event('on_execute_finished'),
 			])
+		self.assertEqual(ev.events[-1]['event_name'], 'on_execute_finished')
 
 
 	def test_050_raise(self):
-		ev = self._make_event_log_listener()
+		ev = self._make_event_log_exec_listener()
 
 		code = 'raise ValueError\n'
 
 		self.krn.execute_request(code, listener=ev)
-		while len(ev.events) < 5:
+		while len(ev.events) < 6:
 			self.krn.poll(-1)
 
 		tb = [u'\x1b[0;31m---------------------------------------------------------------------------\x1b[0m\n\x1b[0;31mValueError\x1b[0m                                Traceback (most recent call last)',
@@ -1446,7 +1536,9 @@ class TestCase_jipy_kernel (unittest.TestCase):
 			krn_event('on_execute_error', ename='ValueError', evalue='', traceback=tb),
 			krn_event('on_error', ename='ValueError', evalue='', traceback=tb),
 			krn_event('on_status', busy=False),
+			krn_event('on_execute_finished'),
 			])
+		self.assertEqual(ev.events[-1]['event_name'], 'on_execute_finished')
 
 
 def test_poll_speed():
