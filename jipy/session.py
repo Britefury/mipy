@@ -1,9 +1,9 @@
 import hashlib, hmac, uuid, datetime, json
 
-from org.python.core.util import StringUtil
+from .util import str_to_bytes, bytes_to_str, zmq_recv_multipart, zmq_send_multipart
 
 
-_DELIM = StringUtil.toBytes("<IDS|MSG>")
+_DELIM = str_to_bytes("<IDS|MSG>")
 _KERNEL_PROTOCOL_VERSION = b'5.0'
 
 
@@ -45,9 +45,7 @@ class Session(object):
 		to_send = self.serialize(msg, ident)
 		if buffers is not None:
 			to_send.extend(buffers)
-		for part in to_send[:-1]:
-			stream.sendMore(part)
-		stream.send(to_send[-1])
+		zmq_send_multipart(stream, to_send)
 		return msg, msg_id
 
 	def recv(self, stream):
@@ -56,9 +54,7 @@ class Session(object):
 		:param stream: the JeroMQ stream from which to read the message
 		:return: a tuple: (idents, msg) where msg is the deserialized message
 		'''
-		msg_list = [stream.recv()]
-		while stream.hasReceiveMore():
-			msg_list.append(stream.recv())
+		msg_list = zmq_recv_multipart(stream)
 
 		# Extract identities
 		pos = msg_list.index(_DELIM)
@@ -171,12 +167,12 @@ class Session(object):
 		:return: signature hash hex digest
 		'''
 		if self.auth is None:
-			return StringUtil.toBytes('')
+			return str_to_bytes('')
 		else:
 			h = self.auth.copy()
 			for m in msg_payload_list:
 				h.update(m)
-			return StringUtil.toBytes(h.hexdigest())
+			return str_to_bytes(h.hexdigest())
 
 
 	def _pack(self, x):
@@ -186,7 +182,7 @@ class Session(object):
 		:param x: message data to pack
 		:return: byte array
 		'''
-		return StringUtil.toBytes(json.dumps(x))
+		return str_to_bytes(json.dumps(x))
 
 	def _unpack(self, x):
 		'''
@@ -195,7 +191,7 @@ class Session(object):
 		:param x: byte array to unpack
 		:return: message component
 		'''
-		return json.loads(StringUtil.fromBytes(x))
+		return json.loads(bytes_to_str(x))
 
 
 

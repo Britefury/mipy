@@ -1,10 +1,7 @@
-import os, sys, json, hmac, uuid, datetime, hashlib, subprocess, tempfile, json
-
-from org.zeromq import ZMQ
-from org.python.core.util import StringUtil
+import uuid, datetime, subprocess, tempfile, json
 
 
-from .util import MessageRouter
+from .util import *
 from .session import Session
 from .comm import Comm
 from .request_listener import *
@@ -40,7 +37,7 @@ def load_connection_file(kernel_name=None, kernel_path=None):
 
 
 def _unpack_ident(ident):
-	return [StringUtil.fromBytes(x) for x in ident]
+	return [bytes_to_str(x) for x in ident]
 
 
 
@@ -96,7 +93,7 @@ class KernelConnection(object):
 		# JeroMQ context
 		cls = type(self)
 		if cls.__ctx is None:
-			cls.__ctx = ZMQ.context(1)
+			cls.__ctx = ZMQ_new_context(1)
 		cls.__ctx_ref_count += 1
 
 		# Create the four IPython sockets; SHELL, IOPUB, STDIN and CONTROL
@@ -110,14 +107,14 @@ class KernelConnection(object):
 		self.stdin.connect('{0}://{1}:{2}'.format(transport, address, stdin_port))
 		self.control.connect('{0}://{1}:{2}'.format(transport, address, control_port))
 		# Subscribe IOPUB to everything
-		self.iopub.subscribe(StringUtil.toBytes(''))
+		zmq_subscribe_socket(self.iopub, '')
 
 		# Create a poller to monitor the four sockets for incoming messages
-		self.__poller = ZMQ.Poller(4)
-		self.__shell_poll_index = self.__poller.register(self.shell, ZMQ.Poller.POLLIN)
-		self.__iopub_poll_index = self.__poller.register(self.iopub, ZMQ.Poller.POLLIN)
-		self.__stdin_poll_index = self.__poller.register(self.stdin, ZMQ.Poller.POLLIN)
-		self.__control_poll_index = self.__poller.register(self.control, ZMQ.Poller.POLLIN)
+		self.__poller = ZMQReadPoller()
+		self.__shell_poll_index = self.__poller.register(self.shell)
+		self.__iopub_poll_index = self.__poller.register(self.iopub)
+		self.__stdin_poll_index = self.__poller.register(self.stdin)
+		self.__control_poll_index = self.__poller.register(self.control)
 
 		# Create a session for message packing and unpacking
 		self.session = Session(key, username)
@@ -127,6 +124,12 @@ class KernelConnection(object):
 		self._iopub_handler = MessageRouter(self, 'iopub')
 		self._stdin_handler = MessageRouter(self, 'stdio')
 		self._control_handler = MessageRouter(self, 'control')
+
+		self.__socket_handlers = {}
+		self.__socket_handlers[self.shell] = self._shell_handler
+		self.__socket_handlers[self.iopub] = self._iopub_handler
+		self.__socket_handlers[self.stdin] = self._stdin_handler
+		self.__socket_handlers[self.control] = self._control_handler
 
 		# Reply handlers
 		self.__execute_request_refcounts = {}
@@ -166,7 +169,7 @@ class KernelConnection(object):
 		cls = type(self)
 		cls.__ctx_ref_count -= 1
 		if cls.__ctx_ref_count == 0:
-			cls.__ctx.close()
+			cls.__ctx.term()
 			cls.__ctx = None
 		self._open = False
 
@@ -179,34 +182,18 @@ class KernelConnection(object):
 			-1 = wait indefinitely, 0 = return immediately,
 		:return: a boolean indicating if events were processed
 		'''
-		processed_events = False
+		n_events = 0
 		if self._open:
-			n_events = self.__poller.poll(timeout)
-			if n_events > 0:
-				processed_events = True
-			while n_events > 0:
-				if self.__poller.pollin(self.__iopub_poll_index):
-					ident, msg = self.session.recv(self.iopub)
-					ident = _unpack_ident(ident)
-					self._iopub_handler.handle(ident, msg)
+			def _on_read_event(socket):
+				handler = self.__socket_handlers[socket]
+				ident, msg = self.session.recv(socket)
+				ident = _unpack_ident(ident)
+				handler.handle(ident, msg)
 
-				if self.__poller.pollin(self.__stdin_poll_index):
-					ident, msg = self.session.recv(self.stdin)
-					ident = _unpack_ident(ident)
-					self._stdin_handler.handle(ident, msg)
 
-				if self.__poller.pollin(self.__shell_poll_index):
-					ident, msg = self.session.recv(self.shell)
-					ident = _unpack_ident(ident)
-					self._shell_handler.handle(ident, msg)
+			n_events = self.__poller.poll(timeout, _on_read_event)
 
-				if self.__poller.pollin(self.__control_poll_index):
-					ident, msg = self.session.recv(self.control)
-					ident = _unpack_ident(ident)
-					self._control_handler.handle(ident, msg)
-
-				n_events = self.__poller.poll(0)
-		return processed_events
+		return n_events > 0
 
 
 	@property
