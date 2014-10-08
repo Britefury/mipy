@@ -11,9 +11,9 @@ for j in JARS:
 
 
 
-import jipy.kernel
+import mipy.kernel
 
-testModules = [ jipy.kernel,
+testModules = [ mipy.kernel,
 		]
 
 
