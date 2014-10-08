@@ -1,5 +1,11 @@
-import uuid, datetime, subprocess, tempfile, json
+##-*************************
+##-* This software can be used, redistributed and/or modified under
+##-* the terms of the BSD 2-clause license as found in the file
+##-* 'License.txt' in this distribution.
+##-* This source code is (C)copyright Geoffrey French 1999-2014.
+##-*************************
 
+import uuid, datetime, subprocess, tempfile, json
 
 from .util import *
 from .session import Session

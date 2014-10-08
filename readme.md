@@ -2,6 +2,8 @@ mipy - a library for connecting to a remote IPython kernel from Jython, using Je
 
 
 
+Licensed under 2-clause BSD.
+
 
 
 Required libraries on Jython
