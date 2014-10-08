@@ -687,7 +687,7 @@ __ipython_processes = []
 class IPythonKernelProcess (object):
 	__kernels = []
 
-	def __init__(self, connection_file_path=None, python_path=None):
+	def __init__(self, ipython_path='ipython', connection_file_path=None):
 		# If no connection file path was specified, generate one
 		if connection_file_path is None:
 			handle, connection_file_path = tempfile.mkstemp(suffix='.json', prefix='kernel')
@@ -698,15 +698,8 @@ class IPythonKernelProcess (object):
 
 		# Spawn the kernel in a sub-process
 		env = None
-		ipython_executable = 'ipython'
-		if python_path is not None:
-			env = os.environ.copy()
-			path = env.get('PATH', '')
-			if len(path) > 0:
-				path = os.path.join(python_path, 'bin') + os.pathsep + path
-			env['PATH'] = path
-			env['PYTHON_PATH'] = python_path
-		self.__proc = subprocess.Popen([ipython_executable, 'kernel', '-f', self.__connection_file_path],
+
+		self.__proc = subprocess.Popen([ipython_path, 'kernel', '-f', self.__connection_file_path],
 					       env=env, stdout=subprocess.PIPE)
 
 		self.__connection = None
@@ -747,8 +740,10 @@ import unittest, sys, os, time
 class TestCase_jipy_kernel (unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
+		ipython_path = os.environ.get('IPYTHON_PATH', 'ipython')
+
 		# Start the IPython kernel process
-		cls.krn_proc = IPythonKernelProcess()
+		cls.krn_proc = IPythonKernelProcess(ipython_path=ipython_path)
 
 		while cls.krn_proc.connection is None:
 			time.sleep(0.1)
@@ -761,31 +756,33 @@ class TestCase_jipy_kernel (unittest.TestCase):
 		cls.krn = None
 		cls.krn_proc.close()
 
-	def __show_evs(self, evs1, evs2):
-		print 'EVENTS LIST A'
-		print '-------------'
-		for a in evs1:
+	def __show_evs(self, actual, expected):
+		print 'ACTUAL EVENTS LIST'
+		print '------------------'
+		for a in actual:
 			print a
 		print ''
-		print 'EVENTS LIST B'
-		print '-------------'
-		for a in evs2:
+		print 'EXPECTED EVENTS LIST'
+		print '--------------------'
+		for a in expected:
 			print a
 
-	def assertEventListsEqual(self, evs1, evs2):
-		evs_a = evs1[:]
-		evs_b = evs2[:]
+	def assertEventListsEqual(self, actual, expected):
+		evs_a = actual[:]
+		evs_b = expected[:]
 		for a in evs_a:
 			try:
 				evs_b.remove(a)
 			except ValueError:
-				print 'Event {0} present in first list but NOT present in second'.format(a)
-				self.__show_evs(evs1, evs2)
+				print ''
+				print 'Event {0} present in ACTUAL list but NOT present in EXPECTED'.format(a)
+				self.__show_evs(actual, expected)
 				print
 				self.fail()
 		for b in evs_b:
-			print 'Event {0} NOT present in first list but present in second'.format(b)
-			self.__show_evs(evs1, evs2)
+			print ''
+			print 'Event {0} NOT present in ACTUAL list but present in EXPECTED'.format(b)
+			self.__show_evs(actual, expected)
 			print
 			self.fail()
 
