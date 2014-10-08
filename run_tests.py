@@ -5,9 +5,9 @@ import os
 if os.name == 'java':
 	JARS = ['jeromq-0.3.5-SNAPSHOT.jar', 'guava-17.0.jar']
 
-for j in JARS:
-	if j not in sys.path:
-		sys.path.append(j)
+	for j in JARS:
+		if j not in sys.path:
+			sys.path.append(j)
 
 
 
