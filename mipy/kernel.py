@@ -458,10 +458,10 @@ class KernelConnection(object):
 				evalue = content['evalue']
 				traceback = content['traceback']
 				execute_request_listener.on_execute_error(ename, evalue, traceback)
-			elif status == 'abort':
+			elif status == 'abort'  or  status == 'aborted':
 				execute_request_listener.on_execute_abort()
 			else:
-				raise ValueError, 'Unknown execute_reply status'
+				raise ValueError, 'Unknown execute_reply status {0}'.format(status)
 			self.__unref_execute_request_listener(parent_msg_id, execute_request_listener)
 		else:
 			print 'No listener for execute_reply'
