@@ -153,13 +153,6 @@ class ExecuteRequestListener (KernelRequestListener):
 		"""
 		pass
 
-	def on_execute_finished(self):
-		"""
-		Invoked when all messages have been received that indicate that execution has finished.
-		Will be the last event that is received.
-		"""
-		pass
-
 
 
 
