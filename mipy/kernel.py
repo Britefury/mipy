@@ -165,16 +165,17 @@ class KernelConnection(object):
 		Shutdown
 		:return: None
 		'''
-		self.shell.close()
-		self.iopub.close()
-		self.stdin.close()
-		self.control.close()
-		cls = type(self)
-		cls.__ctx_ref_count -= 1
-		if cls.__ctx_ref_count == 0:
-			cls.__ctx.term()
-			cls.__ctx = None
-		self._open = False
+		if self._open:
+			self.shell.close()
+			self.iopub.close()
+			self.stdin.close()
+			self.control.close()
+			cls = type(self)
+			cls.__ctx_ref_count -= 1
+			if cls.__ctx_ref_count == 0:
+				cls.__ctx.term()
+				cls.__ctx = None
+			self._open = False
 
 
 	def poll(self, timeout=0):
@@ -1071,6 +1072,26 @@ comm.send({'text': 'Hi there'})
 		self.assertEqual([{'text': 'Hi there'}], received_messages)
 
 
+	def test_100_shutdown_during_execution(self):
+		ev_exec1 = self._make_event_log_listener(EventLogKernelRequestListener)
+		ev_exec2 = self._make_event_log_listener(EventLogKernelRequestListener)
+
+		code1 = 'print 1'
+		code2 = 'exit()'
+
+		self.krn.execute_request(code1, listener=ev_exec1, store_history=False)
+		self.krn.execute_request(code2, listener=ev_exec2, store_history=False)
+
+		while len(ev_exec1.events) < 4:
+			self.krn.poll(-1)
+
+		self.assertEventListsEqual(ev_exec1.events, [
+			krn_event('on_status', busy=True),
+			krn_event('on_execute_input', code=code1, execution_count=6),
+			krn_event('on_execute_ok', execution_count=5, payload=[], user_expressions={}),
+			krn_event('on_stream', stream_name='stdout', data='1\n'),
+			krn_event('on_status', busy=False),
+			])
 
 
 
