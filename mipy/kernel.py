@@ -677,8 +677,11 @@ class KernelConnection(object):
 		comm_id = content['comm_id']
 		data = content['data']
 
+		parent_msg_id = _get_parent_msg_id(msg)
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+
 		comm = self.__comm_id_to_comm[comm_id]
-		comm._handle_message(data)
+		comm._handle_message(data, kernel_request_listener)
 
 	def _handle_msg_iopub_comm_close(self, ident, msg):
 		content = msg['content']
@@ -686,8 +689,11 @@ class KernelConnection(object):
 		comm_id = content['comm_id']
 		data = content['data']
 
+		parent_msg_id = _get_parent_msg_id(msg)
+		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
+
 		comm = self.__comm_id_to_comm[comm_id]
-		comm._handle_closed_remotely(data)
+		comm._handle_closed_remotely(data, kernel_request_listener)
 		del self.__comm_id_to_comm[comm_id]
 
 
@@ -975,8 +981,8 @@ received_comm.send({'text': 'Hi there'})
 		comm = self.krn.open_comm('mipy_test', {'a': 1}, listener=ev_open_comm)
 
 		received_messages = []
-		def on_comm_message(comm, data):
-			received_messages.append(data)
+		def on_comm_message(comm, data, request_listener):
+			received_messages.append((data, request_listener))
 		comm.on_message = on_comm_message
 
 		while len(ev_open_comm.events) < 3:
@@ -1001,22 +1007,22 @@ received_comm.send({'text': 'Hi there'})
 			krn_event('on_status', busy=False),
 			])
 
-		self.assertEqual(received_messages, [{'text': 'Hi there'}])
+		self.assertEqual(received_messages, [({'text': 'Hi there'}, ev_exec)])
 		del received_messages[:]
 
 
 		comm.send({'b': 2})
 		while len(received_messages) < 1:
 			self.krn.poll(-1)
-		self.assertEqual(received_messages, [{'reply_to': {'b': 2}}])
+		self.assertEqual(received_messages, [({'reply_to': {'b': 2}}, None)])
 
 
 	def test_090_open_comm_from_kernel(self):
 		manager = CommManager()
 
 		received_messages = []
-		def on_message(comm, msg):
-			received_messages.append(msg)
+		def on_message(comm, msg, request_listener):
+			received_messages.append((msg, request_listener))
 
 		open_comms = []
 		open_comm_data = []
@@ -1069,7 +1075,7 @@ comm.send({'text': 'Hi there'})
 			])
 
 
-		self.assertEqual([{'text': 'Hi there'}], received_messages)
+		self.assertEqual([({'text': 'Hi there'}, ev_exec)], received_messages)
 
 
 	def test_100_shutdown_during_execution(self):
