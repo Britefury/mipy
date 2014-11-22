@@ -827,7 +827,7 @@ class IPythonKernelProcess (object):
 
 import unittest, sys, os, time
 
-class TestCase_jipy_kernel (unittest.TestCase):
+class TestCase_kernel (unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		ipython_path = os.environ.get('IPYTHON_PATH', 'ipython')
@@ -1025,6 +1025,7 @@ def on_mipy_test_open(comm, data):
 
 	def reply(data):
 		received_comm.send({'reply_to': data['content']['data']})
+		print 'Received {0}'.format(data['content']['data'])
 
 	print 'mipy test opened {0}'.format(data['content']['data'])
 	received_comm.on_msg(reply)
@@ -1082,10 +1083,17 @@ received_comm.send({'text': 'Hi there'})
 		del received_messages[:]
 
 
-		comm.send({'b': 2})
+		ev_comm_msg = self._make_event_log_listener(EventLogKernelRequestListener)
+		comm.send({'b': 2}, listener=ev_comm_msg)
 		while len(received_messages) < 1:
 			self.krn.poll(-1)
-		self.assertEqual(received_messages, [({'reply_to': {'b': 2}}, None)])
+		self.assertEqual(received_messages, [({u'reply_to': {u'b': 2}}, ev_comm_msg)])
+		while len(ev_comm_msg.events) < 3:
+			self.assertEventListsEqual(ev_exec.events, [
+				krn_event('on_status', busy=True),
+				krn_event('on_stream', stream_name='stdout', data="Received {u'b': 2}\n"),
+				krn_event('on_status', busy=False),
+				])
 
 
 	def test_090_open_comm_from_kernel(self):
