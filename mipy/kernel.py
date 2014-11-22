@@ -50,6 +50,9 @@ def _unpack_ident(ident):
 def _get_parent_msg_id(msg):
 	return msg['parent_header'].get('msg_id')
 
+def _get_parent_msg_type(msg):
+	return msg['parent_header'].get('msg_type')
+
 
 def _show_handler_exception(kernel, context):
 	type, value, tb = sys.exc_info()
@@ -487,7 +490,7 @@ class KernelConnection(object):
 			else:
 				raise ValueError, 'Unknown execute_reply status {0}'.format(status)
 		else:
-			print 'No listener for execute_reply'
+			print 'No listener for execute_reply responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_iopub_pyout(self, ident, msg):
 		self._handle_msg_iopub_execute_result(ident, msg)
@@ -505,7 +508,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'iopub:execute_result')
 		else:
-			print 'No listener for execute_result'
+			print 'No listener for execute_result responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_iopub_pyerr(self, ident, msg):
 		self._handle_msg_iopub_error(ident, msg)
@@ -523,7 +526,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'iopub:error')
 		else:
-			print 'No listener for execute_result'
+			print 'No listener for error responding to {0}'.format(_get_parent_msg_type(msg))
 
 
 	def _handle_msg_shell_inspect_reply(self, ident, msg):
@@ -552,7 +555,7 @@ class KernelConnection(object):
 			else:
 				raise ValueError, 'Unknown inspect_reply status'
 		else:
-			print 'No listener for inspect_reply'
+			print 'No listener for inspect_reply responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_shell_complete_reply(self, ident, msg):
 		content = msg['content']
@@ -582,7 +585,7 @@ class KernelConnection(object):
 			else:
 				raise ValueError, 'Unknown complete_reply status'
 		else:
-			print 'No listener for complete_reply'
+			print 'No listener for complete_reply responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_shell_history_reply(self, ident, msg):
 		content = msg['content']
@@ -594,7 +597,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'shell:history_reply')
 		else:
-			print 'No listener for history_reply'
+			print 'No listener for history_reply responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_shell_connect_reply(self, ident, msg):
 		content = msg['content']
@@ -607,7 +610,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'shell:connect_reply')
 		else:
-			print 'No listener for connect_reply'
+			print 'No listener for connect_reply responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_shell_kernel_info_reply(self, ident, msg):
 		content = msg['content']
@@ -624,7 +627,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'shell:kernel_info_reply')
 		else:
-			print 'No listener for kernel_info_reply'
+			print 'No listener for kernel_info_reply responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_shell_shutdown_reply(self, ident, msg):
 		content = msg['content']
@@ -636,7 +639,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'shell:shutdown_reply')
 		else:
-			print 'No listener for shutdown_reply'
+			print 'No listener for shutdown_reply responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_iopub_stream(self, ident, msg):
 		content = msg['content']
@@ -650,7 +653,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'iopub:stream')
 		else:
-			print 'No listener for stream'
+			print 'No listener for stream responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_iopub_display_data(self, ident, msg):
 		content = msg['content']
@@ -665,7 +668,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'iopub:display_data')
 		else:
-			print 'No listener for display_data'
+			print 'No listener for display_data responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_iopub_status(self, ident, msg):
 		content = msg['content']
@@ -696,7 +699,7 @@ class KernelConnection(object):
 			except:
 				_show_handler_exception(self, 'iopub:execute_input')
 		else:
-			print 'No listener for execute_input'
+			print 'No listener for execute_input responding to {0}'.format(_get_parent_msg_type(msg))
 
 	def _handle_msg_iopub_clear_output(self, ident, msg):
 		content = msg['content']
