@@ -658,13 +658,12 @@ class KernelConnection(object):
 	def _handle_msg_iopub_display_data(self, ident, msg):
 		content = msg['content']
 		parent_msg_id = _get_parent_msg_id(msg)
-		source = content['source']
 		data = content['data']
 		metadata = content['metadata']
 		kernel_request_listener = self.__request_listeners.get(parent_msg_id)
 		if kernel_request_listener is not None:
 			try:
-				kernel_request_listener.on_display_data(source, data, metadata)
+				kernel_request_listener.on_display_data(data, metadata)
 			except:
 				_show_handler_exception(self, 'iopub:display_data')
 		else:
